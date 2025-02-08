@@ -2,8 +2,9 @@ steps:
   debug:
     image: alpine
     commands:
-      - echo "GITHUB_USERNAME: $GITHUB_USERNAME"
-      - echo "GITHUB_TOKEN length: $(echo -n "$GITHUB_TOKEN" | wc -c)"
+      - echo "GITHUB_USERNAME: ${GITHUB_USERNAME}"
+      - echo "Checking GITHUB_TOKEN length..."
+      - '[ -n "${GITHUB_TOKEN}" ] && echo "GITHUB_TOKEN is set" || echo "GITHUB_TOKEN is empty"'
 
   login:
     image: docker
