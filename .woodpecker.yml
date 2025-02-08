@@ -1,6 +1,6 @@
 steps:
   build:
-    image: plugins/docker
+    image: woodpeckerci/plugin-docker
     settings:
       repo: ghcr.io/pranavnbapat/opensearch
       tags: latest
