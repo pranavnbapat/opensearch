@@ -2,7 +2,7 @@ steps:
   login:
     image: docker
     commands:
-      - echo -n "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_USERNAME" --password-stdin
+      - echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_USERNAME" --password-stdin
 
   build:
     image: plugins/docker
@@ -16,21 +16,54 @@ steps:
       username: $GITHUB_USERNAME
       password: $GITHUB_TOKEN
 
-  init-opensearch:
-    image: python:3.11
-    environment:
-      OPENSEARCH_HOST: opensearch.nexavion.com
-    commands:
-      - pip install -r requirements.txt
-      - python opensearch-init/init-opensearch.py
-
   deploy:
     image: appleboy/ssh
+    depends_on:
+      - build
     settings:
       host: $DEPLOY_HOST
       username: $DEPLOY_USER
       key: $SSH_PRIVATE_KEY
       script: |
-        cd /path/to/deployment
+        echo "🚀 Deploying OpenSearch..."
+        cd /root/OpenSearch
+
+        echo "🛑 Stopping existing containers..."
+        docker compose down || echo "⚠ Containers were not running."
+
+        echo "📥 Pulling latest images..."
         docker compose pull
-        docker compose up -d
+
+        echo "🚀 Restarting services..."
+        docker compose up -d --build
+
+        echo "✅ Deployment complete!"
+
+  wait-for-opensearch:
+    image: curlimages/curl
+    depends_on:
+      - deploy
+    commands:
+      - echo "⏳ Waiting for OpenSearch to be ready..."
+      - |
+        for i in {1..30}; do
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u os_admin:$OPENSEARCH_PASSWORD https://opensearch.nexavion.com/_cluster/health --insecure)
+          if [ "$STATUS" -eq 200 ]; then
+            echo "✅ OpenSearch is ready!"
+            exit 0
+          fi
+          echo "⏳ Attempt $i: OpenSearch is not ready yet..."
+          sleep 5
+        done
+        echo "❌ OpenSearch did not start in time!"
+        exit 1
+
+  init-opensearch:
+    image: python:3.11
+    depends_on:
+      - wait-for-opensearch
+    environment:
+      OPENSEARCH_HOST: opensearch.nexavion.com
+    commands:
+      - pip install -r requirements.txt
+      - python opensearch-init/init-opensearch.py
