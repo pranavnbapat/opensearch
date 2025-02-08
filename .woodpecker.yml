@@ -1,6 +1,13 @@
 steps:
+  login:
+    image: docker
+    commands:
+      - echo $GITHUB_TOKEN | docker login ghcr.io -u $GITHUB_USERNAME --password-stdin
+
   build:
     image: plugins/docker
+    depends_on:
+      - login
     settings:
       repo: ghcr.io/pranavnbapat/opensearch
       tags: latest
