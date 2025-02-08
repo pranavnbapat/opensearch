@@ -1,0 +1,21 @@
+pipeline:
+  build:
+    image: docker:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    commands:
+      - docker build -t ghcr.io/pranavnbapat/opensearch:latest opensearch-init/
+      - docker push ghcr.io/pranavnbapat/opensearch:latest
+
+  init-opensearch:
+    image: python:3.11
+    environment:
+      OPENSEARCH_HOST: opensearch.nexavion.com
+    commands:
+      - pip install -r requirements.txt
+      - python opensearch-init/init-opensearch.py
+
+  deploy:
+    image: alpine
+    commands:
+      - ssh user@your-server "cd /path/to/deployment && docker compose pull && docker compose up -d"
