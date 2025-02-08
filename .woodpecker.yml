@@ -3,7 +3,7 @@ steps:
     image: alpine
     commands:
       - echo "GITHUB_USERNAME: $GITHUB_USERNAME"
-      - echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+      - echo "GITHUB_TOKEN length: $(echo -n "$GITHUB_TOKEN" | wc -c)"
 
   login:
     image: docker
