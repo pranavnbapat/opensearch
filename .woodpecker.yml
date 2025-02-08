@@ -1,13 +1,13 @@
 steps:
   build:
-    image: woodpeckerci/plugin-docker
+    image: plugins/docker
     settings:
       repo: ghcr.io/pranavnbapat/opensearch
       tags: latest
       dockerfile: opensearch-init/Dockerfile
       registry: ghcr.io
-      username: $WOODPECKER_GITHUB_CLIENT
-      password: $WOODPECKER_GITHUB_SECRET
+      username: $GITHUB_USERNAME
+      password: $GITHUB_TOKEN
 
   init-opensearch:
     image: python:3.11
@@ -20,8 +20,8 @@ steps:
   deploy:
     image: appleboy/ssh
     settings:
-      host: your-server
-      username: your-user
+      host: $DEPLOY_HOST
+      username: $DEPLOY_USER
       key: $SSH_PRIVATE_KEY
       script: |
         cd /path/to/deployment
