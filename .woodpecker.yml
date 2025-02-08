@@ -1,9 +1,20 @@
 steps:
+  debug:
+    image: alpine
+    commands:
+      - echo "GITHUB_USERNAME: $GITHUB_USERNAME"
+      - echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+
   login:
     image: docker
+    environment:
+      GITHUB_USERNAME: $GITHUB_USERNAME
+      GITHUB_TOKEN: $GITHUB_TOKEN
     commands:
+      - echo "Logging into GHCR..."
+      - if [ -z "$GITHUB_USERNAME" ]; then echo "❌ GITHUB_USERNAME is missing!"; exit 1; fi
+      - if [ -z "$GITHUB_TOKEN" ]; then echo "❌ GITHUB_TOKEN is missing!"; exit 1; fi
       - echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_USERNAME" --password-stdin
-
   build:
     image: plugins/docker
     depends_on:
