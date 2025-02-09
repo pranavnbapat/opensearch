@@ -1,10 +1,16 @@
 ---
 steps:
+    check-secrets:
+        image: alpine
+        commands:
+            - echo "Checking Woodpecker Secrets..."
+            - echo "GITHUB_USERNAME: ${GITHUB_USERNAME}"
+            - echo "GITHUB_TOKEN length: $(echo -n "${GITHUB_TOKEN}" | wc -c)"
     login:
         image: docker
         environment:
-            GITHUB_USERNAME: ${GITHUB_USERNAME}
-            GITHUB_TOKEN: ${GITHUB_TOKEN}
+            GITHUB_USERNAME: "${GITHUB_USERNAME}"
+            GITHUB_TOKEN: "${GITHUB_TOKEN}"
         commands:
             - echo "Logging into GHCR..."
             - |
