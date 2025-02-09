@@ -1,5 +1,5 @@
-FROM python:3.9-slim-buster
-#FROM python:3.9
+#FROM python:3.9-slim-buster
+FROM python:3.9
 
 WORKDIR /app
 #COPY init_opensearch.py /app/init-opensearch.py

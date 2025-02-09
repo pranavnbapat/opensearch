@@ -54,8 +54,6 @@ steps:
             password:
                 from_secret: GITHUB_TOKEN
             no_cache: true
-            volumes:
-              - /woodpecker/src
 
     deploy:
         image: appleboy/ssh
