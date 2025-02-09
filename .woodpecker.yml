@@ -8,16 +8,18 @@ steps:
             - echo "DEPLOY_USER: ${DEPLOY_USER}"
             - echo "GITHUB_USERNAME: ${GITHUB_USERNAME}"
             - |
-              echo "GITHUB_TOKEN length: $(echo -n "${GITHUB_TOKEN}" | wc -c)"
-              echo "SSH_PRIVATE_KEY length: $(echo -n "${SSH_PRIVATE_KEY}" | wc -c)"
+              TOKEN_LENGTH=$(echo -n "${GITHUB_TOKEN}" | wc -c)
+              KEY_LENGTH=$(echo -n "${SSH_PRIVATE_KEY}" | wc -c)
+              echo "GITHUB_TOKEN length: $TOKEN_LENGTH"
+              echo "SSH_PRIVATE_KEY length: $KEY_LENGTH"
 
             - echo "Checking GITHUB_TOKEN..."
             - |
-                if [ -n "${GITHUB_TOKEN}" ]; then
-                  echo "✅ GITHUB_TOKEN is set"
-                else
-                  echo "❌ GITHUB_TOKEN is empty"
-                fi
+              if [ -n "${GITHUB_TOKEN}" ]; then
+                echo "GITHUB_TOKEN is set"
+              else
+                echo "GITHUB_TOKEN is empty"
+              fi
 
     login:
         image: docker
@@ -89,13 +91,13 @@ steps:
                   -u os_admin:"${OPENSEARCH_PASSWORD}" \
                   https://opensearch.nexavion.com/_cluster/health --insecure)
                 if [ "$STATUS" -eq 200 ]; then
-                  echo "OpenSearch is ready!"
+                  echo "✅ OpenSearch is ready!"
                   exit 0
                 fi
-                echo "Attempt $i: OpenSearch is not ready yet..."
+                echo "⏳ Attempt $i: OpenSearch is not ready yet..."
                 sleep 5
               done
-              echo "OpenSearch did not start in time!"
+              echo "❌ OpenSearch did not start in time!"
               exit 1
 
     init-opensearch:
