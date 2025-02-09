@@ -29,7 +29,11 @@ steps:
           echo "GITHUB_TOKEN is missing!"
           exit 1
         fi
-      - echo "${GITHUB_TOKEN}" | docker login ghcr.io --username "${GITHUB_USERNAME}" --password-stdin
+      - |
+        echo "${GITHUB_TOKEN}" | \
+          docker login ghcr.io \
+          --username "${GITHUB_USERNAME}" \
+          --password-stdin
 
   build:
     image: plugins/docker
