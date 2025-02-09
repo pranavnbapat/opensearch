@@ -8,7 +8,7 @@ steps:
         commands:
             - echo "Logging into GHCR..."
             - |
-              if [ -z GITHUB_USERNAME ]; then
+              if GITHUB_USERNAME; then
                 echo "GITHUB_USERNAME is missing!"
                 exit 1
               fi
