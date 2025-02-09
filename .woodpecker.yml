@@ -24,6 +24,14 @@ steps:
                 docker login ghcr.io \
                 --username "$${GITHUB_USERNAME}" \
                 --password-stdin
+    
+    debug-network:
+        image: alpine
+        commands:
+            - apk add --no-cache curl
+            - echo "Checking connectivity from within the Woodpecker agent..."
+            - curl -I https://hub.docker.com || echo "Failed to reach Docker Hub"
+            - ping -c 4 google.com || echo "Failed to reach Google"
 
     build:
         image: plugins/docker
