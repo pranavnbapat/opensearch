@@ -1,25 +1,5 @@
 ---
 steps:
-    debug:
-        image: alpine
-        commands:
-            - echo "🔍 Checking Secrets"
-            - echo "DEPLOY_HOST: ${DEPLOY_HOST}"
-            - echo "DEPLOY_USER: ${DEPLOY_USER}"
-            - echo "GITHUB_USERNAME: ${GITHUB_USERNAME}"
-            - |
-             TOKEN_LENGTH=$(echo -n "${GITHUB_TOKEN}" | wc -c)
-             KEY_LENGTH=$(echo -n "${SSH_PRIVATE_KEY}" | wc -c)
-             echo "GITHUB_TOKEN length: $TOKEN_LENGTH"
-             echo "SSH_PRIVATE_KEY length: $KEY_LENGTH"
-            - echo "Checking GITHUB_TOKEN..."
-            - |
-             if [ -n "${GITHUB_TOKEN}" ]; then
-               echo "GITHUB_TOKEN is set"
-             else
-               echo "GITHUB_TOKEN is empty"
-             fi
-
     login:
         image: docker
         environment:
