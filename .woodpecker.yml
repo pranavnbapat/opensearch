@@ -33,6 +33,12 @@ steps:
 #            - curl -I https://hub.docker.com || echo "Failed to reach Docker Hub"
 #            - ping -c 4 google.com || echo "Failed to reach Google"
 
+    debug: # Still highly recommended for debugging!
+        image: alpine
+        commands:
+            - pwd
+            - ls -l
+
     build:
         image: plugins/docker
         depends_on:
@@ -40,9 +46,8 @@ steps:
         settings:
             repo: ghcr.io/pranavnbapat/opensearch
             tags: latest
-            dockerfile: opensearch-init/Dockerfile
             context: .
-#            context: opensearch-init
+            dockerfile: Dockerfile
             registry: ghcr.io
             username:
                 from_secret: GITHUB_USERNAME
