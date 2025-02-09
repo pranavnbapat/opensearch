@@ -22,7 +22,7 @@ steps:
             - |
               echo "$${GITHUB_TOKEN}" | \
                 docker login ghcr.io \
-                --username "${GITHUB_USERNAME}" \
+                --username "$${GITHUB_USERNAME}" \
                 --password-stdin
 
     build:
