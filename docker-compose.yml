@@ -1,4 +1,14 @@
 services:
+  opensearch-init:
+    build:
+      context: ./opensearch-init
+      dockerfile: Dockerfile
+    container_name: opensearch-init
+    depends_on:
+      - opensearch-node1
+    networks:
+      - traefik-net
+
   opensearch-node1:
     image: opensearchproject/opensearch:2.18.0
     container_name: opensearch-node1
