@@ -1,82 +1,82 @@
 steps:
-  debug:
-    image: alpine
-    commands:
-      - echo "GITHUB_USERNAME: ${GITHUB_USERNAME}"
-      - echo "Checking GITHUB_TOKEN length..."
-      - if [ -n "${GITHUB_TOKEN}" ]; then echo "GITHUB_TOKEN is set"; else echo "GITHUB_TOKEN is empty"; fi
+    debug:
+        image: alpine
+        commands:
+            - echo "GITHUB_USERNAME: ${GITHUB_USERNAME}"
+            - echo "Checking GITHUB_TOKEN length..."
+            - if [ -n "${GITHUB_TOKEN}" ]; then echo "GITHUB_TOKEN is set"; else echo "GITHUB_TOKEN is empty"; fi
 
-  login:
-    image: docker
-    environment:
-      GITHUB_USERNAME: "${GITHUB_USERNAME}"
-      GITHUB_TOKEN: "${GITHUB_TOKEN}"
-    commands:
-      - echo "Logging into GHCR..."
-      - if [ -z "$GITHUB_USERNAME" ]; then echo "GITHUB_USERNAME is missing!"; exit 1; fi
-      - if [ -z "$GITHUB_TOKEN" ]; then echo "GITHUB_TOKEN is missing!"; exit 1; fi
-      - echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_USERNAME" --password-stdin
+    login:
+        image: docker
+        environment:
+            GITHUB_USERNAME: "${GITHUB_USERNAME}"
+            GITHUB_TOKEN: "${GITHUB_TOKEN}"
+        commands:
+            - echo "Logging into GHCR..."
+            - if [ -z "$GITHUB_USERNAME" ]; then echo "GITHUB_USERNAME is missing!"; exit 1; fi
+            - if [ -z "$GITHUB_TOKEN" ]; then echo "GITHUB_TOKEN is missing!"; exit 1; fi
+            - echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_USERNAME" --password-stdin
 
-  build:
-    image: plugins/docker
-    depends_on:
-      - login
-    settings:
-      repo: ghcr.io/pranavnbapat/opensearch
-      tags: latest
-      dockerfile: opensearch-init/Dockerfile
-      registry: ghcr.io
-      username: "${GITHUB_USERNAME}"
-      password: "${GITHUB_TOKEN}"
+    build:
+        image: plugins/docker
+        depends_on:
+            - login
+        settings:
+            repo: ghcr.io/pranavnbapat/opensearch
+            tags: latest
+            dockerfile: opensearch-init/Dockerfile
+            registry: ghcr.io
+            username: "${GITHUB_USERNAME}"
+            password: "${GITHUB_TOKEN}"
 
-  deploy:
-    image: appleboy/ssh
-    depends_on:
-      - build
-    settings:
-      host: $DEPLOY_HOST
-      username: $DEPLOY_USER
-      key: $SSH_PRIVATE_KEY
-      script: |
-        echo "Deploying OpenSearch..."
-        cd /root/OpenSearch
+    deploy:
+        image: appleboy/ssh
+        depends_on:
+            - build
+        settings:
+            host: $DEPLOY_HOST
+            username: $DEPLOY_USER
+            key: $SSH_PRIVATE_KEY
+            script: |
+                echo "Deploying OpenSearch..."
+                cd /root/OpenSearch
 
-        echo "Stopping existing containers..."
-        docker compose down || echo "Containers were not running."
+                echo "Stopping existing containers..."
+                docker compose down || echo "Containers were not running."
 
-        echo "Pulling latest images..."
-        docker compose pull
+                echo "Pulling latest images..."
+                docker compose pull
+        
+                echo "Restarting services..."
+                docker compose up -d --build
+        
+                echo "Deployment complete!"
 
-        echo "Restarting services..."
-        docker compose up -d --build
+    wait-for-opensearch:
+        image: curlimages/curl
+        depends_on:
+          - deploy
+        commands:
+            - echo "Waiting for OpenSearch to be ready..."
+            - |
+              for i in {1..30}; do
+                STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u os_admin:$OPENSEARCH_PASSWORD https://opensearch.nexavion.com/_cluster/health --insecure)
+                if [ "$STATUS" -eq 200 ]; then
+                  echo "OpenSearch is ready!"
+                  exit 0
+                fi
+                echo "Attempt $i: OpenSearch is not ready yet..."
+                sleep 5
+              done
+              echo "OpenSearch did not start in time!"
+              exit 1
 
-        echo "Deployment complete!"
-
-  wait-for-opensearch:
-    image: curlimages/curl
-    depends_on:
-      - deploy
-    commands:
-      - echo "Waiting for OpenSearch to be ready..."
-      - |
-        for i in {1..30}; do
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u os_admin:$OPENSEARCH_PASSWORD https://opensearch.nexavion.com/_cluster/health --insecure)
-          if [ "$STATUS" -eq 200 ]; then
-            echo "OpenSearch is ready!"
-            exit 0
-          fi
-          echo "Attempt $i: OpenSearch is not ready yet..."
-          sleep 5
-        done
-        echo "OpenSearch did not start in time!"
-        exit 1
-
-  init-opensearch:
-    image: python:3.11
-    depends_on:
-      - wait-for-opensearch
-    environment:
-      OPENSEARCH_HOST: opensearch.nexavion.com
-    commands:
-      - pip install -r requirements.txt
-      - python opensearch-init/init-opensearch.py
+    init-opensearch:
+        image: python:3.11
+        depends_on:
+            - wait-for-opensearch
+        environment:
+            OPENSEARCH_HOST: opensearch.nexavion.com
+        commands:
+            - pip install -r requirements.txt
+            - python opensearch-init/init-opensearch.py
