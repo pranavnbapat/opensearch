@@ -25,13 +25,13 @@ steps:
                 --username "$${GITHUB_USERNAME}" \
                 --password-stdin
     
-    debug-network:
-        image: alpine
-        commands:
-            - apk add --no-cache curl
-            - echo "Checking connectivity from within the Woodpecker agent..."
-            - curl -I https://hub.docker.com || echo "Failed to reach Docker Hub"
-            - ping -c 4 google.com || echo "Failed to reach Google"
+#    debug-network:
+#        image: alpine
+#        commands:
+#            - apk add --no-cache curl
+#            - echo "Checking connectivity from within the Woodpecker agent..."
+#            - curl -I https://hub.docker.com || echo "Failed to reach Docker Hub"
+#            - ping -c 4 google.com || echo "Failed to reach Google"
 
     build:
         image: plugins/docker
@@ -41,7 +41,8 @@ steps:
             repo: ghcr.io/pranavnbapat/opensearch
             tags: latest
             dockerfile: opensearch-init/Dockerfile
-            context: opensearch-init
+            context: .
+#            context: opensearch-init
             registry: ghcr.io
             username:
                 from_secret: GITHUB_USERNAME
