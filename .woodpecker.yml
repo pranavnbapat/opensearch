@@ -46,6 +46,8 @@ steps:
                 from_secret: GITHUB_USERNAME
             password:
                 from_secret: GITHUB_TOKEN
+            build_args:
+                - --no-cache
 
     deploy:
         image: appleboy/ssh
