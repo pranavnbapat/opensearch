@@ -7,17 +7,17 @@ steps:
             - echo "DEPLOY_HOST: ${DEPLOY_HOST}"
             - echo "DEPLOY_USER: ${DEPLOY_USER}"
             - echo "GITHUB_USERNAME: ${GITHUB_USERNAME}"
-            - echo "GITHUB_TOKEN length: $(echo -n "${GITHUB_TOKEN}" | wc -c)"
-            - echo "SSH_PRIVATE_KEY length: $(echo -n "${SSH_PRIVATE_KEY}" | wc -c)"
-
-            - echo "GITHUB_USERNAME: ${GITHUB_USERNAME}"
-            - echo "Checking GITHUB_TOKEN length..."
             - |
-              if [ -n "${GITHUB_TOKEN}" ]; then
-                echo "GITHUB_TOKEN is set"
-              else
-                echo "GITHUB_TOKEN is empty"
-              fi
+              echo "GITHUB_TOKEN length: $(echo -n "${GITHUB_TOKEN}" | wc -c)"
+              echo "SSH_PRIVATE_KEY length: $(echo -n "${SSH_PRIVATE_KEY}" | wc -c)"
+
+            - echo "Checking GITHUB_TOKEN..."
+            - |
+                if [ -n "${GITHUB_TOKEN}" ]; then
+                  echo "✅ GITHUB_TOKEN is set"
+                else
+                  echo "❌ GITHUB_TOKEN is empty"
+                fi
 
     login:
         image: docker
