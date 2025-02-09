@@ -41,6 +41,7 @@ steps:
             repo: ghcr.io/pranavnbapat/opensearch
             tags: latest
             dockerfile: opensearch-init/Dockerfile
+            context: opensearch-init
             registry: ghcr.io
             username:
                 from_secret: GITHUB_USERNAME
