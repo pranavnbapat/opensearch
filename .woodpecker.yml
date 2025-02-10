@@ -56,7 +56,7 @@ steps:
             no_cache: true
 
     deploy:
-        image: appleboy/ssh
+        image: appleboy/drone-ssh
         depends_on:
             - build
         settings:
