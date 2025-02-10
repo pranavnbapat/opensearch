@@ -2,8 +2,8 @@ import time
 import requests
 
 # OpenSearch Configuration
-OPENSEARCH_URL = "https://opensearch.nexavion.com"
-# OPENSEARCH_URL = "http://opensearch-node1:9200"
+# OPENSEARCH_URL = "https://opensearch.nexavion.com"
+OPENSEARCH_URL = "http://opensearch-node1:9200"
 AUTH = ("os_admin", "strugglersaala")
 
 # Model choices
