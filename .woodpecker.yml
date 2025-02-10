@@ -68,8 +68,9 @@ steps:
                 from_secret: SSH_PRIVATE_KEY
             script: |
                 echo "Deploying OpenSearch..."
-                if [ ! -d "~/euf/opensearch" ]; then
-                    echo "Error: ~/euf/opensearch directory does not exist!"
+                
+                if [ ! -d "$HOME/euf/opensearch" ]; then
+                    echo "Error: $HOME/euf/opensearch directory does not exist!"
                     exit 1
                 fi
               
