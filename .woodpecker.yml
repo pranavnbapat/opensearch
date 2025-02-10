@@ -81,7 +81,7 @@ steps:
                 fi
               
                 echo "Copying docker-compose.yml to server..."
-                scp -o StrictHostKeyChecking=no docker-compose.yml $DEPLOY_USER@$DEPLOY_HOST:~/euf/opensearch/docker-compose.yml
+                cat docker-compose.yml | ssh -o StrictHostKeyChecking=no $DEPLOY_USER@$DEPLOY_HOST "cat > ~/euf/opensearch/docker-compose.yml"
               
                 cd ~/euf/opensearch || exit 1
               
