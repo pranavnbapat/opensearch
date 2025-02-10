@@ -33,11 +33,11 @@ steps:
 #            - curl -I https://hub.docker.com || echo "Failed to reach Docker Hub"
 #            - ping -c 4 google.com || echo "Failed to reach Google"
 
-    debug:
-        image: alpine
-        commands:
-            - pwd
-            - ls -la
+#    debug:
+#        image: alpine
+#        commands:
+#            - pwd
+#            - ls -la
 
     build:
         image: plugins/docker
@@ -68,12 +68,15 @@ steps:
                 from_secret: SSH_PRIVATE_KEY
             script: |
                 echo "Deploying OpenSearch..."
-                if [ ! -d "/root/OpenSearch" ]; then
-                    echo "Creating /root/OpenSearch directory..."
-                    mkdir -p /root/OpenSearch
+                if [ ! -d "~/euf/opensearch" ]; then
+                    echo "Error: ~/euf/opensearch directory does not exist!"
+                    exit 1
                 fi
               
-                cd /root/OpenSearch || exit 1
+                echo "Copying docker-compose.yml to server..."
+                scp -o StrictHostKeyChecking=no docker-compose.yml $$DEPLOY_USER@$$DEPLOY_HOST:~/euf/opensearch/docker-compose.yml
+              
+                cd ~/euf/opensearch || exit 1
               
                 if [ ! -f "docker-compose.yml" ]; then
                     echo "No docker-compose.yml found! Deployment cannot continue."
