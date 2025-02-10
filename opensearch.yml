@@ -1,5 +1,5 @@
-plugins:
-  ml_commons:
-    enabled: true
-  neural_search:
-    enabled: true
+#plugins:
+#  ml_commons:
+#    enabled: true
+#  neural_search:
+#    enabled: true
