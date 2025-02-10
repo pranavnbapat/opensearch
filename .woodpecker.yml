@@ -139,7 +139,7 @@ steps:
             OPENSEARCH_HOST: opensearch.nexavion.com
         commands:
             - pip install -r requirements.txt
-            - python opensearch-init/init-opensearch.py
+            - python init_opensearch.py
         when:
             event:
                 - push
