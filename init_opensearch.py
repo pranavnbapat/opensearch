@@ -235,7 +235,7 @@ deploy_model(model_id_en)
 deploy_model(model_id_multi)
 
 # Create ingest pipeline and k-NN index
-create_ingest_pipeline(task_id_en, task_id_multi)
+create_ingest_pipeline(model_id_en, model_id_multi)
 create_knn_index()
 
 # Index sample document
