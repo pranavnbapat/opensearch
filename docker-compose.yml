@@ -1,7 +1,7 @@
 services:
   opensearch-init:
     build:
-      context: ./opensearch-init
+      context: .
       dockerfile: Dockerfile
     container_name: opensearch-init
     depends_on:

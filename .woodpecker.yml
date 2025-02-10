@@ -33,11 +33,11 @@ steps:
 #            - curl -I https://hub.docker.com || echo "Failed to reach Docker Hub"
 #            - ping -c 4 google.com || echo "Failed to reach Google"
 
-    debug: # Still highly recommended for debugging!
+    debug:
         image: alpine
         commands:
             - pwd
-            - ls -l
+            - ls -la
 
     build:
         image: plugins/docker
