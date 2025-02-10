@@ -24,6 +24,9 @@ steps:
                 docker login ghcr.io \
                 --username "$${GITHUB_USERNAME}" \
                 --password-stdin
+        when:
+            event:
+                - push
     
 #    debug-network:
 #        image: alpine
@@ -54,6 +57,9 @@ steps:
             password:
                 from_secret: GITHUB_TOKEN
             no_cache: true
+        when:
+            event:
+                - push
 
     deploy:
         image: appleboy/drone-ssh
@@ -75,7 +81,7 @@ steps:
                 fi
               
                 echo "Copying docker-compose.yml to server..."
-                scp -o StrictHostKeyChecking=no docker-compose.yml $$DEPLOY_USER@$$DEPLOY_HOST:~/euf/opensearch/docker-compose.yml
+                scp -o StrictHostKeyChecking=no docker-compose.yml $DEPLOY_USER@$DEPLOY_HOST:~/euf/opensearch/docker-compose.yml
               
                 cd ~/euf/opensearch || exit 1
               
@@ -94,6 +100,9 @@ steps:
                 docker compose up -d --build
 
                 echo "Deployment complete!"
+        when:
+            event:
+                - push
 
     wait-for-opensearch:
         image: curlimages/curl
@@ -118,6 +127,9 @@ steps:
               done
               echo "OpenSearch did not start in time!"
               exit 1
+        when:
+            event:
+                - push
 
     init-opensearch:
         image: python:3.11
@@ -128,3 +140,6 @@ steps:
         commands:
             - pip install -r requirements.txt
             - python opensearch-init/init-opensearch.py
+        when:
+            event:
+                - push
