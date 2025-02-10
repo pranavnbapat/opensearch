@@ -68,7 +68,17 @@ steps:
                 from_secret: SSH_PRIVATE_KEY
             script: |
                 echo "Deploying OpenSearch..."
-                cd /root/OpenSearch
+                if [ ! -d "/root/OpenSearch" ]; then
+                    echo "Creating /root/OpenSearch directory..."
+                    mkdir -p /root/OpenSearch
+                fi
+              
+                cd /root/OpenSearch || exit 1
+              
+                if [ ! -f "docker-compose.yml" ]; then
+                    echo "No docker-compose.yml found! Deployment cannot continue."
+                    exit 1
+                fi
 
                 echo "Stopping existing containers..."
                 docker compose down || echo "Containers were not running."
@@ -85,12 +95,15 @@ steps:
         image: curlimages/curl
         depends_on:
             - deploy
+        environment:
+            OPENSEARCH_PASSWORD:
+                from_secret: OPENSEARCH_PASSWORD
         commands:
             - echo "Waiting for OpenSearch to be ready..."
             - |
               for i in {1..30}; do
                 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-                  -u os_admin:"${OPENSEARCH_PASSWORD}" \
+                  -u os_admin:"$${OPENSEARCH_PASSWORD}" \
                   https://opensearch.nexavion.com/_cluster/health --insecure)
                 if [ "$STATUS" -eq 200 ]; then
                   echo "OpenSearch is ready!"
