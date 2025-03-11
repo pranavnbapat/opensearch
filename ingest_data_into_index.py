@@ -1,10 +1,12 @@
 import os
-import requests
-import urllib3
 import json
-import time
+import re
+import urllib3
+from datetime import datetime
 from dotenv import load_dotenv
+from opensearchpy import OpenSearch, helpers
 
+# Disable SSL warnings (if using self-signed certificates)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Load environment variables
@@ -13,133 +15,76 @@ load_dotenv()
 # OpenSearch Configuration
 OPENSEARCH_URL = "https://opensearch.nexavion.com"
 AUTH = (os.getenv("OPENSEARCH_USR"), os.getenv("OPENSEARCH_PWD"))
-HEADERS = {"Content-Type": "application/json"}
 
-INDEX_NAME = os.getenv("INDEX_NAME")  # Neural search index name
-RETRY_LIMIT = 5  # Maximum retries per document
-TIMEOUT = 10  # Timeout per request
+# Ensure credentials are loaded
+if not all(AUTH):
+    raise ValueError("OpenSearch credentials (OPENSEARCH_USR & OPENSEARCH_PWD) are missing!")
 
+# Connect to OpenSearch
+client = OpenSearch(
+    hosts=[OPENSEARCH_URL],
+    http_auth=AUTH,
+    use_ssl=True,
+    verify_certs=False,  # Set to True if using trusted SSL certs
+)
 
-# **Function to extract & transform document**
-def transform_document(raw_doc):
-    """Transforms a raw document into OpenSearch format"""
-    content_pages = ""
+# Load JSON data from file
+file_path = "opensearch_data_ingestion.json"
+INDEX_NAME = os.getenv("INDEX_NAME", "neural_search_index")
 
-    if isinstance(raw_doc.get("ko_content", []), list) and raw_doc["ko_content"]:
-        content = raw_doc["ko_content"][0].get("content", {})
-        content_pages = " ".join(content.get("content_pages", []))
+with open(file_path, "r", encoding="utf-8") as file:
+    data = json.load(file)
 
-    return {
-        "title": raw_doc.get("title", ""),
-        "summary": raw_doc.get("summary", ""),
-        "projectName": raw_doc.get("projectName", ""),
-        "projectAcronym": raw_doc.get("projectAcronym", ""),
-        "keywords": raw_doc.get("keywords", []),
-        "locations": raw_doc.get("locations", []),
-        "content": {"content_pages": content_pages},
-    }
+# Function to reformat date
+def fix_date_format(date_str):
+    """
+    Converts dates to the format YYYY-MM-DD.
+    - If the input is "DD-MM-YYYY", it converts it to "YYYY-MM-DD".
+    - If the input is only a year (e.g., "2023"), it assumes "01-01-YYYY".
+    - If invalid, returns None.
+    """
+    date_str = date_str.strip()  # Ensure no leading/trailing spaces
 
+    # Check if the date is only a year (e.g., "2023")
+    if re.fullmatch(r"\d{4}", date_str):  # Matches exactly 4 digits
+        return f"{date_str}-01-01"  # Convert "2023" → "2023-01-01"
 
-# **Function to check if OpenSearch is online**
-def check_opensearch_health():
-    """Check if OpenSearch is reachable before inserting data"""
-    url = f"{OPENSEARCH_URL}/_cluster/health"
+    # Convert from DD-MM-YYYY to YYYY-MM-DD
     try:
-        response = requests.get(url, auth=AUTH, headers=HEADERS, timeout=TIMEOUT, verify=False)
-        if response.status_code == 200:
-            return True
-    except requests.exceptions.RequestException:
-        return False
-    return False
+        return datetime.strptime(date_str, "%d-%m-%Y").strftime("%Y-%m-%d")
+    except ValueError:
+        print(f"⚠️ Warning: Invalid date format detected: {date_str}. Skipping conversion.")
+        return None  # Return None for invalid dates
+
+# Function to generate bulk actions
+def generate_bulk_actions(documents):
+    """
+    Generator that yields bulk index operations for OpenSearch.
+    Processes data in batches.
+    """
+    for doc in documents:
+        # Convert `dateCreated` if it exists
+        if "dateCreated" in doc and isinstance(doc["dateCreated"], str):
+            doc["dateCreated"] = fix_date_format(doc["dateCreated"])
+            if doc["dateCreated"] is None:
+                del doc["dateCreated"]  # Remove field if conversion fails
+
+        yield {
+            "_index": INDEX_NAME,
+            "_id": doc["_orig_id"],  # Use _orig_id as document ID
+            "_source": doc  # The actual document data
+        }
 
 
-# **Function to check if document already exists**
-def document_exists(doc_id):
-    """Returns True if the document exists, otherwise False"""
-    url = f"{OPENSEARCH_URL}/{INDEX_NAME}/_doc/{doc_id}"
-    response = requests.head(url, auth=AUTH, headers=HEADERS, timeout=TIMEOUT, verify=False)
-    return response.status_code == 200
+# Process data in batches of 10
+batch_size = 10
+total_docs = len(data)
+print(f"Starting ingestion of {total_docs} documents in batches of {batch_size}...")
 
+for i in range(0, total_docs, batch_size):
+    batch = data[i: i + batch_size]  # Extract batch of 10 documents
+    success, failed = helpers.bulk(client, generate_bulk_actions(batch))
 
-# **Function to insert a document into OpenSearch**
-def insert_document(doc_id, document):
-    """Inserts a single document into OpenSearch with retries"""
-    url = f"{OPENSEARCH_URL}/{INDEX_NAME}/_doc/{doc_id}"
-    retries = 0
+    print(f"Batch {i // batch_size + 1}: {success} documents indexed, {failed} failed.")
 
-    while retries < RETRY_LIMIT:
-        try:
-            response = requests.put(url, auth=AUTH, headers=HEADERS, json=document, timeout=TIMEOUT, verify=False)
-
-            if response.status_code in [200, 201]:
-                return True  # Success
-
-            elif response.status_code == 429:  # Too Many Requests (Rate Limit)
-                wait_time = 2 ** retries  # Exponential backoff
-                print(f"⚠️ Rate limited. Retrying in {wait_time}s...")
-                time.sleep(wait_time)
-
-            else:
-                print(f"❌ Error {response.status_code} for doc {doc_id}: {response.text}")
-                return False
-
-        except requests.exceptions.ConnectionError:
-            print(f"⚠️ Connection error for {doc_id}. Retrying in 5s...")
-            time.sleep(5)
-
-        except requests.exceptions.Timeout:
-            print(f"⚠️ Timeout for {doc_id}. Retrying in 3s...")
-            time.sleep(3)
-
-        retries += 1
-
-    print(f"❌ Skipped document {doc_id} after {RETRY_LIMIT} failed attempts.")
-    return False
-
-
-# **Function to ingest all documents into OpenSearch one by one**
-def ingest_documents(documents):
-    """Inserts documents into OpenSearch, one by one, skipping already processed ones"""
-    total_docs = len(documents)
-    inserted_count = 0
-    skipped_count = 0
-
-    if not check_opensearch_health():
-        print("🚨 OpenSearch is unreachable! Check your connection and restart the script.")
-        return
-
-    for i, raw_doc in enumerate(documents, 1):
-        doc_id = raw_doc["_id"]
-
-        # **Check if document already exists before inserting**
-        if document_exists(doc_id):
-            skipped_count += 1
-            print(f"⏩ Skipping already existing document: {doc_id}")  # ✅ Prints skipped document ID
-            continue
-
-        transformed_doc = transform_document(raw_doc)
-        success = insert_document(doc_id, transformed_doc)
-
-        if success:
-            inserted_count += 1
-
-        # Log progress every 100 documents
-        if i % 100 == 0 or i == total_docs:
-            print(f"✅ Inserted {inserted_count}/{i} | Skipped {skipped_count} already existing documents...")
-
-        # Small delay to avoid overloading OpenSearch
-        time.sleep(0.1)
-
-    print(f"🎉 Finished! Successfully inserted {inserted_count}/{total_docs} documents. Skipped {skipped_count} existing ones.")
-
-
-# **Main Execution**
-if __name__ == "__main__":
-    print("🚀 Ingesting documents into OpenSearch...")
-
-    # Load documents
-    with open("final_output.json", "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # Ingest documents one by one
-    ingest_documents(data)
+print("✅ All documents successfully ingested into OpenSearch!")

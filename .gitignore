@@ -10,3 +10,6 @@ __pycache__/
 *.pyd
 
 *.json
+*.ndjson
+*.txt
+*.log
