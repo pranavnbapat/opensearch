@@ -74,6 +74,8 @@ def clean_text_extensive(text):
     text = re.sub(r'\s+', ' ', text)
 
     return text.strip()
+
+
 def remove_extra_quotes(text):
     """
     Removes extra leading/trailing double quotes but keeps quotes within the text.

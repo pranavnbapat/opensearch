@@ -13,7 +13,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 load_dotenv()
 
 # OpenSearch Configuration
-OPENSEARCH_URL = "https://opensearch.nexavion.com"
+OPENSEARCH_URL = os.getenv("OPENSEARCH_URL")
 AUTH = (os.getenv("OPENSEARCH_USR"), os.getenv("OPENSEARCH_PWD"))
 
 # Ensure credentials are loaded
@@ -53,7 +53,7 @@ def fix_date_format(date_str):
     try:
         return datetime.strptime(date_str, "%d-%m-%Y").strftime("%Y-%m-%d")
     except ValueError:
-        print(f"⚠️ Warning: Invalid date format detected: {date_str}. Skipping conversion.")
+        print(f"Warning: Invalid date format detected: {date_str}. Skipping conversion.")
         return None  # Return None for invalid dates
 
 # Function to generate bulk actions
@@ -87,4 +87,4 @@ for i in range(0, total_docs, batch_size):
 
     print(f"Batch {i // batch_size + 1}: {success} documents indexed, {failed} failed.")
 
-print("✅ All documents successfully ingested into OpenSearch!")
+print("All documents successfully ingested into OpenSearch!")
