@@ -38,6 +38,87 @@ def get_latest_json_file(folder="raw_data"):
     latest_file = max(files, key=lambda x: os.path.getctime(os.path.join(folder, x)))
     return os.path.join(folder, latest_file)
 
+# Function to delete all documents in the index before inserting new data
+# def delete_existing_documents():
+#     """
+#     Deletes all documents from the OpenSearch index to prevent duplicates.
+#     """
+#     try:
+#         response = client.delete_by_query(
+#             index=INDEX_NAME,
+#             body={"query": {"match_all": {}}},  # Deletes all documents
+#             conflicts="proceed"  # Ensures deletion continues if there are conflicts
+#         )
+#         print(f"Deleted {response['deleted']} old documents from {INDEX_NAME}")
+#     except Exception as e:
+#         print(f"Error deleting existing documents: {e}")
+
+def reset_index():
+    try:
+        client.indices.delete(index=INDEX_NAME, ignore=[400, 404])  # Delete index if it exists
+        print(f"Deleted index: {INDEX_NAME}")
+
+        # Recreate the index with required settings and mappings
+        client.indices.create(
+            index=INDEX_NAME,
+            body={
+                "settings": {"index.knn": True, "default_pipeline": "neural_search_pipeline"},
+                "mappings": {
+                    "properties": {
+                        "_orig_id": {"type": "keyword"},
+                        "@id": {"type": "keyword", "index": False},
+                        "title": {"type": "text"},
+                        "title_embedding": {
+                            "type": "knn_vector", "dimension": 768,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "summary": {"type": "text"},
+                        "summary_embedding": {
+                            "type": "knn_vector", "dimension": 768,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "content_pages": {"type": "text"},
+                        "content_embedding": {
+                            "type": "knn_vector", "dimension": 768,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "keywords": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
+                        "keywords_embedding": {
+                            "type": "knn_vector", "dimension": 768,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "topics": {"type": "keyword"},
+                        "subtopics": {"type": "keyword"},
+                        "locations": {"type": "keyword"},
+                        "locations_embedding": {
+                            "type": "knn_vector", "dimension": 768,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "projectName": {"type": "text"},
+                        "project_embedding": {
+                            "type": "knn_vector", "dimension": 768,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "projectAcronym": {"type": "keyword"},
+                        "fileType": {"type": "keyword"},
+                        "languages": {"type": "keyword"},
+                        "dateCreated": {"type": "date"},
+                        "creators": {"type": "text"}
+                    }
+                }
+            }
+        )
+        print(f"Recreated index: {INDEX_NAME}")
+
+        # Apply ef_search setting after recreating the index
+        client.indices.put_settings(
+            index=INDEX_NAME,
+            body={"index": {"knn.algo_param.ef_search": 100}}
+        )
+        print(f"Applied ef_search setting (100) to {INDEX_NAME}")
+
+    except Exception as e:
+        print(f"Error resetting index: {e}")
 
 # Function to process JSON data for OpenSearch
 def process_json_for_opensearch(input_file):
@@ -182,6 +263,11 @@ try:
 
     processed_data = process_json_for_opensearch(latest_file)
     total_docs = len(processed_data)
+
+    # delete_existing_documents()
+
+    reset_index()
+
     print(f"Starting ingestion of {total_docs} documents...")
 
     batch_size = 10
