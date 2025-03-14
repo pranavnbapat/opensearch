@@ -64,7 +64,8 @@ def process_json_for_opensearch(input_file, output_file):
                 cleaned_doc["content_pages"] = clean_text_extensive(content_text)
 
         # Store only these fields in the original version (returned in search results)
-        search_result_fields = ["title", "creators", "topics", "fileType", "keywords", "dateCreated", "_orig_id", "@id"]
+        search_result_fields = ["title", "creators", "topics", "fileType", "keywords", "dateCreated", "_orig_id", "@id",
+                                "project_id"]
         for key in search_result_fields:
             if key in doc:
                 original_doc[key] = doc[key]
