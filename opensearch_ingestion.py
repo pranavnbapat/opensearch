@@ -38,20 +38,6 @@ def get_latest_json_file(folder="raw_data"):
     latest_file = max(files, key=lambda x: os.path.getctime(os.path.join(folder, x)))
     return os.path.join(folder, latest_file)
 
-# Function to delete all documents in the index before inserting new data
-# def delete_existing_documents():
-#     """
-#     Deletes all documents from the OpenSearch index to prevent duplicates.
-#     """
-#     try:
-#         response = client.delete_by_query(
-#             index=INDEX_NAME,
-#             body={"query": {"match_all": {}}},  # Deletes all documents
-#             conflicts="proceed"  # Ensures deletion continues if there are conflicts
-#         )
-#         print(f"Deleted {response['deleted']} old documents from {INDEX_NAME}")
-#     except Exception as e:
-#         print(f"Error deleting existing documents: {e}")
 
 def reset_index():
     try:
@@ -263,8 +249,6 @@ try:
 
     processed_data = process_json_for_opensearch(latest_file)
     total_docs = len(processed_data)
-
-    # delete_existing_documents()
 
     reset_index()
 
