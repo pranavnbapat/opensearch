@@ -36,6 +36,36 @@ def clean_text_moderate(text):
     return text
 
 
+def chunk_text_by_tokens(text, tokenizer, max_tokens=480, overlap=80):
+    # tokens = tokenizer.encode(text, truncation=False)
+
+    # Tokenize the text into token IDs (no truncation, returns warning if >512)
+    tokens = tokenizer.encode(text, add_special_tokens=False)
+
+    chunks = []
+    start = 0
+    while start < len(tokens):
+        end = min(start + max_tokens, len(tokens))
+        chunk_tokens = tokens[start:end]
+
+        # Safety check: never let a chunk exceed 512 tokens (just in case overlap math breaks it)
+        if len(chunk_tokens) > 512:
+            chunk_tokens = chunk_tokens[:512]
+
+        # Decode token IDs back into text
+        chunk_text = tokenizer.decode(chunk_tokens, skip_special_tokens=True)
+
+        token_count = len(tokenizer.encode(chunk_text, add_special_tokens=False))
+        if token_count > 512:
+            print(f"Warning: Overlong chunk detected ({token_count} tokens)")
+
+        chunks.append(chunk_text.strip())
+
+        # Move to next chunk with overlap
+        start += (max_tokens - overlap)
+    return chunks
+
+
 def clean_text_extensive(text):
     """
     Extensive cleaning: For content pages.

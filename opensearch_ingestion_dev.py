@@ -5,6 +5,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 from opensearchpy import OpenSearch, helpers
 from utils import *  # Importing cleaning functions
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/msmarco-distilbert-base-tas-b")
 
 # Disable SSL warnings (if using self-signed certificates)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -75,6 +78,7 @@ def reset_index():
                         },
                         "topics": {"type": "keyword"},
                         "subtopics": {"type": "keyword"},
+                        "project_type": {"type": "keyword"},
                         "locations": {"type": "keyword"},
                         "locations_embedding": {
                             "type": "knn_vector", "dimension": 768,
@@ -134,7 +138,7 @@ def process_json_for_opensearch(input_file):
                     original_doc[key] = value  # Keep cleaned original
 
         # Fields that need moderate cleaning (lists remain as lists)
-        for key in ["keywords", "topics", "subtopics", "locations", "languages"]:
+        for key in ["keywords", "topics", "subtopics", "project_type", "locations", "languages"]:
             if key in doc:
                 if isinstance(doc[key], list):
                     # Step 1: Remove empty values and whitespace BEFORE cleaning
@@ -158,14 +162,28 @@ def process_json_for_opensearch(input_file):
                         cleaned_doc[key] = clean_text_moderate(value)
                         original_doc[key] = value
 
-        # Extract and clean content_pages from ko_conten
+        # Extract and clean content_pages from ko_content
         if "ko_content" in doc and isinstance(doc["ko_content"], list):
-            content_text = " ".join([
-                " ".join(content.get("content", {}).get("content_pages", []))
-                for content in doc["ko_content"]
-            ])
-            if content_text.strip():
-                cleaned_doc["content_pages"] = clean_text_extensive(content_text)
+            all_chunks = []
+
+            for item in doc["ko_content"]:
+                pages = item.get("content", {}).get("content_pages", [])
+                for page in pages:
+                    if not isinstance(page, str):
+                        continue
+                    cleaned = clean_text_extensive(page)
+                    chunks = chunk_text_by_tokens(cleaned, tokenizer)
+                    all_chunks.extend(chunks)
+
+            if all_chunks:
+                cleaned_doc["content_pages"] = all_chunks
+
+            # content_text = " ".join([
+            #     " ".join(content.get("content", {}).get("content_pages", []))
+            #     for content in doc["ko_content"]
+            # ])
+            # if content_text.strip():
+            #     cleaned_doc["content_pages"] = clean_text_extensive(content_text)
 
         # Store only these fields in the original version (returned in search results)
         search_result_fields = ["title", "creators", "topics", "fileType", "keywords", "dateCreated", "_orig_id", "@id",
