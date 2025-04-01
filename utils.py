@@ -59,7 +59,12 @@ def chunk_text_by_tokens(text, tokenizer, max_tokens=480, overlap=80):
         if token_count > 512:
             print(f"Warning: Overlong chunk detected ({token_count} tokens)")
 
-        chunks.append(chunk_text.strip())
+        chunks.append({
+            "text": chunk_text.strip(),
+            "token_count": token_count
+        })
+
+        # chunks.append(chunk_text.strip())
 
         # Move to next chunk with overlap
         start += (max_tokens - overlap)
