@@ -78,6 +78,7 @@ def reset_index():
                         },
                         "topics": {"type": "keyword"},
                         "subtopics": {"type": "keyword"},
+                        "project_type": {"type": "keyword"},
                         "locations": {"type": "keyword"},
                         "locations_embedding": {
                             "type": "knn_vector", "dimension": 768,
@@ -137,7 +138,7 @@ def process_json_for_opensearch(input_file):
                     original_doc[key] = value  # Keep cleaned original
 
         # Fields that need moderate cleaning (lists remain as lists)
-        for key in ["keywords", "topics", "subtopics", "locations", "languages"]:
+        for key in ["keywords", "topics", "subtopics", "project_type", "locations", "languages"]:
             if key in doc:
                 if isinstance(doc[key], list):
                     # Step 1: Remove empty values and whitespace BEFORE cleaning
@@ -171,19 +172,22 @@ def process_json_for_opensearch(input_file):
                     if not isinstance(page, str):
                         continue
                     cleaned = clean_text_extensive(page)
-                    chunks = chunk_text_by_tokens(cleaned, tokenizer)
-                    all_chunks.extend(chunks)
 
-            # content_text = " ".join([
-            #     " ".join(content.get("content", {}).get("content_pages", []))
-            #     for content in doc["ko_content"]
-            # ])
-            # if content_text.strip():
-            #     cleaned_doc["content_pages"] = clean_text_extensive(content_text)
+                    chunk_objs = chunk_text_by_tokens(cleaned, tokenizer)
+                    for chunk in chunk_objs:
+                        all_chunks.append(chunk["text"])  # still send only text for embedding
+
+                        # Store metadata per chunk
+                        if "content_pages_token_counts" not in cleaned_doc:
+                            cleaned_doc["content_pages_token_counts"] = []
+                        cleaned_doc["content_pages_token_counts"].append(chunk["token_count"])
+
+            if all_chunks:
+                cleaned_doc["content_pages"] = all_chunks
 
         # Store only these fields in the original version (returned in search results)
         search_result_fields = ["title", "creators", "topics", "fileType", "keywords", "dateCreated", "_orig_id", "@id",
-                                "project_id"]
+                                "project_id", "project_type", "projectAcronym"]
         for key in search_result_fields:
             if key in doc:
                 original_doc[key] = doc[key]
