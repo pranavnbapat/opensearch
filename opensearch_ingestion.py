@@ -272,9 +272,9 @@ try:
 
     print(f"Starting ingestion of {total_docs} documents...")
 
-    batch_size = 10
+    batch_size = 5
     for i in range(0, total_docs, batch_size):
-        batch = processed_data[i: i + batch_size]   # Extract batch of 10 documents
+        batch = processed_data[i: i + batch_size]   # Extract batch of 5 documents
         success, failed = helpers.bulk(client, generate_bulk_actions(batch))
         print(f"Batch {i // batch_size + 1}: {success} documents indexed, {failed} failed.")
 
