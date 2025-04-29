@@ -1,5 +1,37 @@
+# utils.py
+
+import os
 import re
 import unicodedata
+import urllib3
+
+from dotenv import load_dotenv
+from opensearchpy import OpenSearch
+
+# Disable SSL warnings (for self-signed certs)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Load environment variables from .env
+load_dotenv()
+
+# Extract OpenSearch settings
+OPENSEARCH_URL = os.getenv("OPENSEARCH_URL")
+AUTH = (os.getenv("OPENSEARCH_USR"), os.getenv("OPENSEARCH_PWD"))
+
+# Ensure credentials exist
+if not all(AUTH):
+    raise ValueError("OpenSearch credentials (OPENSEARCH_USR & OPENSEARCH_PWD) are missing!")
+
+# Create OpenSearch client
+client = OpenSearch(
+    hosts=[OPENSEARCH_URL],
+    http_auth=AUTH,
+    use_ssl=True,
+    verify_certs=False,
+    timeout=60,
+    max_retries=3,
+    retry_on_timeout=True,
+)
 
 
 def clean_text_light(text):

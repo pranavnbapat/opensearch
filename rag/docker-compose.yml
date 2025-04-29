@@ -1,0 +1,14 @@
+services:
+  euf_rag_ollama:
+    image: ollama/ollama:latest
+    container_name: euf_rag_ollama
+    ports:
+      - "11534:11434"  # Expose Ollama API
+    volumes:
+      - euf_rag_ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_MODELS_PATH=/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  euf_rag_ollama-data:

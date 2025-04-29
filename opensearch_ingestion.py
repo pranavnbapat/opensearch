@@ -1,3 +1,5 @@
+# opensearch_ingestion
+
 import os
 import json
 import urllib3
@@ -29,6 +31,9 @@ client = OpenSearch(
     hosts=[OPENSEARCH_URL],
     http_auth=AUTH,
     use_ssl=True,
+    timeout=60,
+    max_retries=3,
+    retry_on_timeout=True,
     verify_certs=False,  # Set to True if using trusted SSL certs
 )
 
@@ -272,11 +277,15 @@ try:
 
     print(f"Starting ingestion of {total_docs} documents...")
 
-    batch_size = 5
+    batch_size = 10
     for i in range(0, total_docs, batch_size):
-        batch = processed_data[i: i + batch_size]   # Extract batch of 5 documents
-        success, failed = helpers.bulk(client, generate_bulk_actions(batch))
-        print(f"Batch {i // batch_size + 1}: {success} documents indexed, {failed} failed.")
+        batch = processed_data[i: i + batch_size]   # Extract batch of 10 documents
+        # success, failed = helpers.bulk(client, generate_bulk_actions(batch))
+        success_count, errors = helpers.bulk(client, generate_bulk_actions(batch), refresh="wait_for", stats_only=False)
+        # print(f"Batch {i // batch_size + 1}: {success} documents indexed, {failed} failed.")
+        print(f"Batch {i // batch_size + 1}: {success_count} successes.")
+        if errors:
+            print(f"Batch {i // batch_size + 1}: {len(errors)} errors occurred.")
 
     print("All documents successfully ingested into OpenSearch!")
 
