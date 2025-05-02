@@ -1,42 +1,14 @@
 # opensearch_ingestion
 
-import os
 import json
-import urllib3
 from datetime import datetime
-from dotenv import load_dotenv
-from opensearchpy import OpenSearch, helpers
-from utils import *  # Importing cleaning functions
+from opensearchpy import helpers
+from utils import *
 from transformers import AutoTokenizer
 
 tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/msmarco-distilbert-base-tas-b")
 
-# Disable SSL warnings (if using self-signed certificates)
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# Load environment variables
-load_dotenv()
-
-# OpenSearch Configuration
-OPENSEARCH_URL = os.getenv("OPENSEARCH_URL")
-AUTH = (os.getenv("OPENSEARCH_USR"), os.getenv("OPENSEARCH_PWD"))
 INDEX_NAME = os.getenv("INDEX_NAME", "neural_search_index")
-
-# Ensure credentials are loaded
-if not all(AUTH):
-    raise ValueError("OpenSearch credentials (OPENSEARCH_USR & OPENSEARCH_PWD) are missing!")
-
-# Connect to OpenSearch
-client = OpenSearch(
-    hosts=[OPENSEARCH_URL],
-    http_auth=AUTH,
-    use_ssl=True,
-    timeout=60,
-    max_retries=3,
-    retry_on_timeout=True,
-    verify_certs=False,  # Set to True if using trusted SSL certs
-)
-
 
 # Function to get the latest file from the 'raw_data' folder
 def get_latest_json_file(folder="raw_data"):
