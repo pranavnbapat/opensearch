@@ -166,13 +166,25 @@ def safe_join(field):
     return " ".join(field) if isinstance(field, list) else str(field or "")
 
 
-def chunked_bulk_upload(docs, chunk_size=10):
+from opensearchpy import helpers
+
+def chunked_bulk_upload(docs, chunk_size=10, logger=None):
+    """
+    Uploads documents to OpenSearch in small chunks (default = 10).
+    Logs progress if a logger is provided.
+    """
     for i in range(0, len(docs), chunk_size):
-        chunk = docs[i:i+chunk_size]
+        chunk = docs[i:i + chunk_size]
         try:
-            success, errors = bulk(client, chunk)
-            print(f"✅ Chunk {i//chunk_size + 1}: {success} documents indexed.")
-            if errors:
-                print(f"⚠️ Chunk {i//chunk_size + 1} had errors: {errors}")
+            success, _ = helpers.bulk(client, chunk)
+            if logger:
+                logger.info(f"Indexed chunk {i // chunk_size + 1}: {success} documents")
+            else:
+                print(f"Indexed chunk {i // chunk_size + 1}: {success} documents")
         except Exception as e:
-            print(f"❌ Error indexing chunk {i//chunk_size + 1}: {e}")
+            error_msg = f"Error indexing chunk {i // chunk_size + 1}: {e}"
+            if logger:
+                logger.error(error_msg)
+            else:
+                print(error_msg)
+

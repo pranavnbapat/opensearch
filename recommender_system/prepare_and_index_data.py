@@ -45,6 +45,9 @@ for model_key, model_path in RECOMM_SYS_SUPPORTED_MODELS.items():
         client.indices.delete(index=index_name)
         print(f"Deleted existing index: {index_name}")
 
+    model = SentenceTransformer(model_path)
+    embedding_dim = model.get_sentence_embedding_dimension()
+
     client.indices.create(index=index_name, body={
         "settings": {
             "index": {
@@ -60,7 +63,7 @@ for model_key, model_path in RECOMM_SYS_SUPPORTED_MODELS.items():
                 "topics": {"type": "text"},
                 "subtopics": {"type": "text"},
                 "content_pages": {"type": "text"},
-                "embedding": {"type": "knn_vector", "dimension": 768}
+                "embedding": {"type": "knn_vector", "dimension": embedding_dim}
             }
         }
     })
