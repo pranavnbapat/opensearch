@@ -13,3 +13,4 @@ __pycache__/
 *.ndjson
 *.txt
 *.log
+*.zip

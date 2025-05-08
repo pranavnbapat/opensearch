@@ -55,7 +55,6 @@ def reset_index():
                         },
                         "topics": {"type": "keyword"},
                         "subtopics": {"type": "keyword"},
-                        "project_type": {"type": "keyword"},
                         "locations": {"type": "keyword"},
                         "locations_embedding": {
                             "type": "knn_vector", "dimension": 768,
@@ -67,6 +66,9 @@ def reset_index():
                             "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
                         },
                         "projectAcronym": {"type": "keyword"},
+                        "project_id": {"type": "keyword"},
+                        "project_type": {"type": "keyword"},
+                        "projectURL": {"type": "keyword"},
                         "fileType": {"type": "keyword"},
                         "languages": {"type": "keyword"},
                         "dateCreated": {"type": "date"},
@@ -164,7 +166,7 @@ def process_json_for_opensearch(input_file):
 
         # Store only these fields in the original version (returned in search results)
         search_result_fields = ["title", "creators", "topics", "fileType", "keywords", "dateCreated", "_orig_id", "@id",
-                                "project_id", "project_type", "projectAcronym"]
+                                "project_id", "project_type", "projectAcronym", "project_id", "projectURL"]
         for key in search_result_fields:
             if key in doc:
                 original_doc[key] = doc[key]

@@ -1,37 +1,14 @@
-import os
+# opensearch_ingestion_dev
+
 import json
-import urllib3
 from datetime import datetime
-from dotenv import load_dotenv
-from opensearchpy import OpenSearch, helpers
-from utils import *  # Importing cleaning functions
+from opensearchpy import helpers
+from utils import *
 from transformers import AutoTokenizer
 
 tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/msmarco-distilbert-base-tas-b")
 
-# Disable SSL warnings (if using self-signed certificates)
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# Load environment variables
-load_dotenv()
-
-# OpenSearch Configuration
-OPENSEARCH_URL = os.getenv("OPENSEARCH_URL")
-AUTH = (os.getenv("OPENSEARCH_USR"), os.getenv("OPENSEARCH_PWD"))
 INDEX_NAME_DEV = os.getenv("INDEX_NAME_DEV", "neural_search_index_dev")
-
-# Ensure credentials are loaded
-if not all(AUTH):
-    raise ValueError("OpenSearch credentials (OPENSEARCH_USR & OPENSEARCH_PWD) are missing!")
-
-# Connect to OpenSearch
-client = OpenSearch(
-    hosts=[OPENSEARCH_URL],
-    http_auth=AUTH,
-    use_ssl=True,
-    verify_certs=False,  # Set to True if using trusted SSL certs
-)
-
 
 # Function to get the latest file from the 'raw_data_dev' folder
 def get_latest_json_file(folder="raw_data_dev"):
@@ -78,7 +55,6 @@ def reset_index():
                         },
                         "topics": {"type": "keyword"},
                         "subtopics": {"type": "keyword"},
-                        "project_type": {"type": "keyword"},
                         "locations": {"type": "keyword"},
                         "locations_embedding": {
                             "type": "knn_vector", "dimension": 768,
@@ -90,6 +66,9 @@ def reset_index():
                             "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
                         },
                         "projectAcronym": {"type": "keyword"},
+                        "project_id": {"type": "keyword"},
+                        "project_type": {"type": "keyword"},
+                        "projectURL": {"type": "keyword"},
                         "fileType": {"type": "keyword"},
                         "languages": {"type": "keyword"},
                         "dateCreated": {"type": "date"},
@@ -187,7 +166,7 @@ def process_json_for_opensearch(input_file):
 
         # Store only these fields in the original version (returned in search results)
         search_result_fields = ["title", "creators", "topics", "fileType", "keywords", "dateCreated", "_orig_id", "@id",
-                                "project_id", "project_type", "projectAcronym"]
+                                "project_id", "project_type", "projectAcronym", "project_id", "projectURL"]
         for key in search_result_fields:
             if key in doc:
                 original_doc[key] = doc[key]
@@ -274,9 +253,13 @@ try:
 
     batch_size = 10
     for i in range(0, total_docs, batch_size):
-        batch = processed_data[i: i + batch_size]   # Extract batch of 10 documents
-        success, failed = helpers.bulk(client, generate_bulk_actions(batch))
-        print(f"Batch {i // batch_size + 1}: {success} documents indexed, {failed} failed.")
+        batch = processed_data[i: i + batch_size]  # Extract batch of 10 documents
+        # success, failed = helpers.bulk(client, generate_bulk_actions(batch))
+        success_count, errors = helpers.bulk(client, generate_bulk_actions(batch), refresh="wait_for", stats_only=False)
+        # print(f"Batch {i // batch_size + 1}: {success} documents indexed, {failed} failed.")
+        print(f"Batch {i // batch_size + 1}: {success_count} successes.")
+        if errors:
+            print(f"Batch {i // batch_size + 1}: {len(errors)} errors occurred.")
 
     print("All documents successfully ingested into OpenSearch!")
 

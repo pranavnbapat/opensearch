@@ -7,6 +7,7 @@ import urllib3
 
 from dotenv import load_dotenv
 from opensearchpy import OpenSearch
+from opensearchpy.helpers import bulk
 
 # Disable SSL warnings (for self-signed certs)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -32,6 +33,14 @@ client = OpenSearch(
     max_retries=3,
     retry_on_timeout=True,
 )
+
+RECOMM_SYS_SUPPORTED_MODELS = {
+    "mpnet": "sentence-transformers/all-mpnet-base-v2",
+    "minilm": "sentence-transformers/all-MiniLM-L6-v2",
+    "e5": "intfloat/e5-base",
+    "bge": "BAAI/bge-base-en-v1.5",
+    "distilbert": "distilbert-base-nli-stsb-mean-tokens",
+}
 
 
 def clean_text_light(text):
@@ -151,3 +160,19 @@ def remove_extra_quotes(text):
         text = text.strip()
         text = re.sub(r'^[\'"]+|[\'"]+$', '', text)  # Removes extra quotes from both ends
     return text
+
+
+def safe_join(field):
+    return " ".join(field) if isinstance(field, list) else str(field or "")
+
+
+def chunked_bulk_upload(docs, chunk_size=10):
+    for i in range(0, len(docs), chunk_size):
+        chunk = docs[i:i+chunk_size]
+        try:
+            success, errors = bulk(client, chunk)
+            print(f"✅ Chunk {i//chunk_size + 1}: {success} documents indexed.")
+            if errors:
+                print(f"⚠️ Chunk {i//chunk_size + 1} had errors: {errors}")
+        except Exception as e:
+            print(f"❌ Error indexing chunk {i//chunk_size + 1}: {e}")
