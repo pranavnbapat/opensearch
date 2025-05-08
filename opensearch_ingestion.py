@@ -2,13 +2,34 @@
 
 import json
 from datetime import datetime
-from opensearchpy import helpers
 from utils import *
 from transformers import AutoTokenizer
 
-tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/msmarco-distilbert-base-tas-b")
+# tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/msmarco-distilbert-base-tas-b")
 
-INDEX_NAME = os.getenv("INDEX_NAME", "neural_search_index")
+# INDEX_NAME = os.getenv("INDEX_NAME", "neural_search_index")
+
+MODEL_CONFIG = {
+    "minilml12v2": {
+        "tokenizer": "sentence-transformers/all-MiniLM-L12-v2",
+        "dimension": 384,
+        "pipeline": "neural_search_pipeline_minilml12v2",
+        "index": "neural_search_index_minilml12v2"
+    },
+    # "mpnetv2": {
+    #     "tokenizer": "sentence-transformers/all-mpnet-base-v2",
+    #     "dimension": 768,
+    #     "pipeline": "neural_search_pipeline_mpnetv2",
+    #     "index": "neural_search_index_mpnetv2"
+    # },
+    # "msmarco": {
+    #     "tokenizer": "sentence-transformers/msmarco-distilbert-base-tas-b",
+    #     "dimension": 768,
+    #     "pipeline": "neural_search_pipeline",
+    #     "index": "neural_search_index_msmarco"
+    # }
+}
+
 
 # Function to get the latest file from the 'raw_data' folder
 def get_latest_json_file(folder="raw_data"):
@@ -19,7 +40,7 @@ def get_latest_json_file(folder="raw_data"):
     return os.path.join(folder, latest_file)
 
 
-def reset_index():
+def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
     try:
         client.indices.delete(index=INDEX_NAME, ignore=[400, 404])  # Delete index if it exists
         print(f"Deleted index: {INDEX_NAME}")
@@ -28,51 +49,58 @@ def reset_index():
         client.indices.create(
             index=INDEX_NAME,
             body={
-                "settings": {"index.knn": True, "default_pipeline": "neural_search_pipeline"},
+                "settings": {"index.knn": True, "default_pipeline": PIPELINE_NAME},
                 "mappings": {
                     "properties": {
+                        "title_embedding": {
+                            "type": "knn_vector", "dimension": VECTOR_DIM,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                       "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "summary_embedding": {
+                            "type": "knn_vector", "dimension": VECTOR_DIM,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                       "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "content_embedding": {
+                            "type": "knn_vector", "dimension": VECTOR_DIM,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                       "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "keywords_embedding": {
+                            "type": "knn_vector", "dimension": VECTOR_DIM,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                       "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "locations_embedding": {
+                            "type": "knn_vector", "dimension": VECTOR_DIM,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                       "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+                        "project_embedding": {
+                            "type": "knn_vector", "dimension": VECTOR_DIM,
+                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                       "parameters": {"ef_construction": 512, "m": 16}}
+                        },
+
                         "_orig_id": {"type": "keyword"},
                         "@id": {"type": "keyword", "index": False},
                         "title": {"type": "text"},
-                        "title_embedding": {
-                            "type": "knn_vector", "dimension": 768,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
-                        },
                         "summary": {"type": "text"},
-                        "summary_embedding": {
-                            "type": "knn_vector", "dimension": 768,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
-                        },
                         "content_pages": {"type": "text"},
-                        "content_embedding": {
-                            "type": "knn_vector", "dimension": 768,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
-                        },
                         "keywords": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
-                        "keywords_embedding": {
-                            "type": "knn_vector", "dimension": 768,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
-                        },
                         "topics": {"type": "keyword"},
                         "subtopics": {"type": "keyword"},
                         "locations": {"type": "keyword"},
-                        "locations_embedding": {
-                            "type": "knn_vector", "dimension": 768,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
-                        },
+                        "fileType": {"type": "keyword"},
+                        "languages": {"type": "keyword"},
+                        "dateCreated": {"type": "date"},
+                        "creators": {"type": "text"},
                         "projectName": {"type": "text"},
-                        "project_embedding": {
-                            "type": "knn_vector", "dimension": 768,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw", "parameters": {"ef_construction": 512, "m": 16}}
-                        },
                         "projectAcronym": {"type": "keyword"},
                         "project_id": {"type": "keyword"},
                         "project_type": {"type": "keyword"},
                         "projectURL": {"type": "keyword"},
-                        "fileType": {"type": "keyword"},
-                        "languages": {"type": "keyword"},
-                        "dateCreated": {"type": "date"},
-                        "creators": {"type": "text"}
                     }
                 }
             }
@@ -239,34 +267,36 @@ def fix_date_format(date_str):
         return None  # Return None for invalid dates
 
 
-# Main Execution
-try:
-    latest_file = get_latest_json_file()
-    print(f"Processing latest file: {latest_file}")
 
-    processed_data = process_json_for_opensearch(latest_file)
-    total_docs = len(processed_data)
+for MODEL, CONFIG in MODEL_CONFIG.items():
+    print(f"\nProcessing model: {MODEL} \n")
 
-    reset_index()
+    tokenizer = AutoTokenizer.from_pretrained(CONFIG["tokenizer"])
+    INDEX_NAME = CONFIG["index"]
+    PIPELINE_NAME = CONFIG["pipeline"]
+    VECTOR_DIM = CONFIG["dimension"]
 
-    print(f"Starting ingestion of {total_docs} documents...")
+    try:
+        latest_file = get_latest_json_file()
+        print(f"Using file: {latest_file}")
 
-    batch_size = 10
-    for i in range(0, total_docs, batch_size):
-        batch = processed_data[i: i + batch_size]   # Extract batch of 10 documents
-        # success, failed = helpers.bulk(client, generate_bulk_actions(batch))
-        success_count, errors = helpers.bulk(client, generate_bulk_actions(batch), refresh="wait_for", stats_only=False)
-        # print(f"Batch {i // batch_size + 1}: {success} documents indexed, {failed} failed.")
-        print(f"Batch {i // batch_size + 1}: {success_count} successes.")
-        if errors:
-            print(f"Batch {i // batch_size + 1}: {len(errors)} errors occurred.")
+        processed_data = process_json_for_opensearch(latest_file)
+        total_docs = len(processed_data)
 
-    print("All documents successfully ingested into OpenSearch!")
+        reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM)
 
-    # Remove intermediate file
-    if os.path.exists("opensearch_data_ingestion.json"):
-        os.remove("opensearch_data_ingestion.json")
-        print("Temporary file removed: opensearch_data_ingestion.json")
+        print(f"Starting ingestion of {total_docs} documents...")
 
-except Exception as e:
-    print(f"Error: {e}")
+        print(f"Indexing into: {INDEX_NAME}")
+        batch_size = 10
+        for i in range(0, total_docs, batch_size):
+            batch = processed_data[i: i + batch_size]
+            success_count, errors = helpers.bulk(client, generate_bulk_actions(batch), refresh="wait_for",
+                                                 stats_only=False)
+            print(f"Batch {i // batch_size + 1}: {success_count} successes.")
+            if errors:
+                print(f"Batch {i // batch_size + 1}: {len(errors)} errors occurred.")
+
+        print(f"Finished ingestion for: {MODEL}")
+    except Exception as e:
+        print(f"Error during {MODEL}: {e}")
