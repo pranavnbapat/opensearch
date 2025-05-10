@@ -6,8 +6,7 @@ import unicodedata
 import urllib3
 
 from dotenv import load_dotenv
-from opensearchpy import OpenSearch
-from opensearchpy.helpers import bulk
+from opensearchpy import OpenSearch, helpers
 
 # Disable SSL warnings (for self-signed certs)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -22,6 +21,9 @@ AUTH = (os.getenv("OPENSEARCH_USR"), os.getenv("OPENSEARCH_PWD"))
 # Ensure credentials exist
 if not all(AUTH):
     raise ValueError("OpenSearch credentials (OPENSEARCH_USR & OPENSEARCH_PWD) are missing!")
+
+if not OPENSEARCH_URL:
+    raise ValueError("Missing OPENSEARCH_URL in .env file")
 
 # Create OpenSearch client
 client = OpenSearch(
@@ -42,38 +44,79 @@ RECOMM_SYS_SUPPORTED_MODELS = {
     "distilbert": "distilbert-base-nli-stsb-mean-tokens",
 }
 
+MODEL_LOWERCASE_REQUIRED = {
+    "minilm": True,
+    "mpnet": True,
+    "msmarco": True,
+    "distilbert": True,
+    "e5": False,
+    "bge": False
+}
+
 
 def clean_text_light(text):
     """
     Light cleaning: For title, summary, project name, acronym.
-    - Lowercase conversion
-    - Trim whitespace
-    - Remove extra spaces and newlines
-    - Preserve alphanumeric characters, accents, and essential punctuation
+    - Trim leading/trailing whitespace
+    - Normalize spaces (replace \n, \t, multiple spaces with single space)
+    - Preserve original casing and punctuation
     """
     if not isinstance(text, str):
         return text
 
-    text = text.strip()  # Remove leading/trailing spaces
-    text = re.sub(r'\s+', ' ', text)  # Normalize spaces
-    return text
+    return normalise_whitespace(text)
 
 
 def clean_text_moderate(text):
     """
-    Moderate cleaning: For keywords, topics, subtopics, locations, languages, file type.
-    - Lowercase conversion
-    - Remove excessive punctuation (keep hyphens & underscores)
-    - Normalize spaces
+    Recommended for: keywords, topics, subtopics, file types
+    Handles:
+      - Excessive punctuation (except hyphen, underscore, apostrophes in contractions)
+      - Fancy quote removal
+      - Pipe character and stray accents
     """
     if not isinstance(text, str):
         return text
 
-    text = text.lower().strip()
-    text = re.sub(r'\s+', ' ', text)  # Normalize spaces
-    text = re.sub(r'[“”"‘’]', '', text)  # Remove fancy quotes
-    text = re.sub(r'[|]', '', text)  # Remove pipe characters
-    text = re.sub(r'[^\w\s\-_]', '', text)  # Remove all other punctuation except hyphen/underscore
+    text = normalise_whitespace(text)
+    text = remove_quotes_and_junk(text)
+    text = preserve_apostrophes_only_in_words(text)
+    return text
+
+
+def clean_text_extensive(text, preserve_numbers=True):
+    """
+    Extensive cleaning: For content pages.
+    - Remove all special characters except hyphens and underscores
+    - Remove standalone numbers
+    - Remove escape sequences (\n, \r, \t, etc.)
+    - Normalize accented characters
+    - Remove extra spaces
+    """
+    if not isinstance(text, str):
+        return text
+
+    text, url_map = extract_and_mask_urls(text)
+
+    # Normalize Unicode characters (preserves accents)
+    text = unicodedata.normalize('NFKC', text)
+
+    text = re.sub(r'(?<=\S)[\n\t](?=\S)', ' ', text)  # Replace \n or \t between non-spaces with space
+    text = re.sub(r'[\n\t\r\f\v]', ' ', text)  # Remove standalone escape characters
+
+    text = remove_quotes_and_junk(text)
+
+    text = preserve_apostrophes_only_in_words(text)
+
+    # Remove standalone numbers
+    # text = re.sub(r'\b\d+\b', '', text)
+    if not preserve_numbers:
+        text = re.sub(r'\b\d+\b', '', text)
+
+    text = normalise_whitespace(text)
+
+    text = restore_urls(text, url_map)
+
     return text
 
 
@@ -96,7 +139,7 @@ def chunk_text_by_tokens(text, tokenizer, max_tokens=480, overlap=80):
         # Decode token IDs back into text
         chunk_text = tokenizer.decode(chunk_tokens, skip_special_tokens=True)
 
-        token_count = len(tokenizer.encode(chunk_text, add_special_tokens=False))
+        token_count = len(tokenizer.encode(chunk_text, add_special_tokens=False, truncation=True, max_length=512))
         if token_count > 512:
             print(f"Warning: Overlong chunk detected ({token_count} tokens)")
 
@@ -112,46 +155,6 @@ def chunk_text_by_tokens(text, tokenizer, max_tokens=480, overlap=80):
     return chunks
 
 
-def clean_text_extensive(text):
-    """
-    Extensive cleaning: For content pages.
-    - Convert to lowercase
-    - Remove all special characters except hyphens and underscores
-    - Remove standalone numbers
-    - Remove escape sequences (\n, \r, \t, etc.)
-    - Normalize accented characters
-    - Remove extra spaces
-    """
-    if not isinstance(text, str):
-        return text
-
-    text = text.lower().strip()
-
-    # Normalize Unicode characters (preserves accents)
-    text = unicodedata.normalize('NFKC', text)
-
-    # Remove all escape sequences (e.g., \n, \r, \t, \x, \u)
-    text = re.sub(r'\\[a-zA-Z0-9]+', '', text)
-
-    # Remove newlines, tabs, carriage returns explicitly
-    text = re.sub(r'[\n\r\t\f\v]', ' ', text)
-
-    # Remove quotation marks, pipes, and other unnecessary punctuation
-    text = re.sub(r'[“”"‘’]', '', text)  # Remove fancy quotes
-    text = re.sub(r'[|]', '', text)  # Remove pipe characters
-
-    # Remove any remaining non-alphanumeric characters (except hyphens and underscores)
-    text = re.sub(r'[^a-zA-Z0-9\s\-_]', '', text)
-
-    # Remove standalone numbers
-    text = re.sub(r'\b\d+\b', '', text)
-
-    # Normalize spaces
-    text = re.sub(r'\s+', ' ', text)
-
-    return text.strip()
-
-
 def remove_extra_quotes(text):
     """
     Removes extra leading/trailing double quotes but keeps quotes within the text.
@@ -163,10 +166,11 @@ def remove_extra_quotes(text):
 
 
 def safe_join(field):
-    return " ".join(field) if isinstance(field, list) else str(field or "")
+    if isinstance(field, list):
+        flat = [str(item) for sub in field for item in (sub if isinstance(sub, list) else [sub]) if item]
+        return " ".join(flat)
+    return str(field or "")
 
-
-from opensearchpy import helpers
 
 def chunked_bulk_upload(docs, chunk_size=10, logger=None):
     """
@@ -187,4 +191,41 @@ def chunked_bulk_upload(docs, chunk_size=10, logger=None):
                 logger.error(error_msg)
             else:
                 print(error_msg)
+
+
+def maybe_lowercase(text, model_key):
+    if not isinstance(text, str):
+        return text
+    return text.lower() if MODEL_LOWERCASE_REQUIRED.get(model_key, False) else text
+
+def normalise_whitespace(text):
+    """Trim and normalise all internal spaces."""
+    if not isinstance(text, str):
+        return text
+    return re.sub(r'\s+', ' ', text.strip())
+
+def preserve_apostrophes_only_in_words(text):
+    """Removes all punctuation except in-word apostrophes."""
+    return re.sub(r"(?!\B'\b)(?!\b'\B)[^\w\s\-_']", '', text)
+
+def remove_quotes_and_junk(text):
+    """Remove common quote marks, pipes, accents."""
+    return re.sub(r'[“”‘’"`´|]', '', text)
+
+def extract_and_mask_urls(text):
+    """Find all URLs and replace them with placeholders like URL_0."""
+    url_pattern = r'https?://\S+'
+    urls = re.findall(url_pattern, text)
+    url_map = {}
+    for i, url in enumerate(urls):
+        placeholder = f" URL_{i} "  # Space-padded placeholder
+        text = text.replace(url, placeholder)
+        url_map[placeholder.strip()] = url  # Strip to match during restore
+    return text, url_map
+
+def restore_urls(text, url_map):
+    """Replace URL placeholders with the original URLs."""
+    for placeholder, url in url_map.items():
+        text = text.replace(placeholder, url)
+    return text
 

@@ -10,12 +10,12 @@ from transformers import AutoTokenizer
 # INDEX_NAME = os.getenv("INDEX_NAME", "neural_search_index")
 
 MODEL_CONFIG = {
-    "minilml12v2": {
-        "tokenizer": "sentence-transformers/all-MiniLM-L12-v2",
-        "dimension": 384,
-        "pipeline": "neural_search_pipeline_minilml12v2",
-        "index": "neural_search_index_minilml12v2"
-    },
+    # "minilml12v2": {
+    #     "tokenizer": "sentence-transformers/all-MiniLM-L12-v2",
+    #     "dimension": 384,
+    #     "pipeline": "neural_search_pipeline_minilml12v2",
+    #     "index": "neural_search_index_minilml12v2"
+    # },
     # "mpnetv2": {
     #     "tokenizer": "sentence-transformers/all-mpnet-base-v2",
     #     "dimension": 768,
@@ -25,8 +25,28 @@ MODEL_CONFIG = {
     # "msmarco": {
     #     "tokenizer": "sentence-transformers/msmarco-distilbert-base-tas-b",
     #     "dimension": 768,
-    #     "pipeline": "neural_search_pipeline",
-    #     "index": "neural_search_index_msmarco"
+    #     "pipeline": "neural_search_pipeline_msmarco_distilbert",
+    #     "index": "neural_search_index_msmarco_distilbert"
+    # },
+
+    # Not supported by OpenSearch out of the box (pretrained)
+    # "e5": {
+    #     "tokenizer": "intfloat/e5-base",
+    #     "dimension": 768,
+    #     "pipeline": "neural_search_pipeline_e5base",
+    #     "index": "neural_search_index_e5base"
+    # },
+    # "bge": {
+    #     "tokenizer": "BAAI/bge-base-en-v1.5",
+    #     "dimension": 768,
+    #     "pipeline": "neural_search_pipeline_bgebase",
+    #     "index": "neural_search_index_bgebase"
+    # },
+    # "distilbert": {
+    #     "tokenizer": "distilbert-base-nli-stsb-mean-tokens",
+    #     "dimension": 768,
+    #     "pipeline": "neural_search_pipeline_distilbert",
+    #     "index": "neural_search_index_distilbert"
     # }
 }
 
@@ -118,7 +138,7 @@ def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
         print(f"Error resetting index: {e}")
 
 # Function to process JSON data for OpenSearch
-def process_json_for_opensearch(input_file):
+def process_json_for_opensearch(input_file, tokenizer, model_key):
     """
     Reads a JSON file, applies cleaning functions appropriately, and prepares data for OpenSearch ingestion.
     - Stores both cleaned and original versions of the data.
@@ -135,39 +155,48 @@ def process_json_for_opensearch(input_file):
         cleaned_doc = {}  # Stores cleaned fields for OpenSearch indexing
         original_doc = {}  # Stores original fields for search results
 
-        # Fields that need light cleaning
-        for key in ["title", "summary", "projectName", "projectAcronym"]:
-            if key in doc:
-                value = remove_extra_quotes(str(doc[key]))  # Convert to string and remove extra quotes
-                value = value.strip()  # Final trim for safety
-                if value:
-                    cleaned_doc[key] = clean_text_light(value)  # Cleaned version
-                    original_doc[key] = value  # Keep cleaned original
+        title_raw = str(doc.get("title", "")).strip()
+        summary_raw = str(doc.get("summary", "")).strip()
+        project_name_raw = str(doc.get("projectName", "")).strip()
+        project_acronym_raw = str(doc.get("projectAcronym", "")).strip()
+
+        cleaned_doc["title"] = clean_text_light(remove_extra_quotes(title_raw))
+        cleaned_doc["summary"] = clean_text_light(remove_extra_quotes(summary_raw))
+        cleaned_doc["projectName"] = clean_text_light(project_name_raw)
+        cleaned_doc["projectAcronym"] = clean_text_light(project_acronym_raw)
+
+        original_doc["title"] = title_raw
+        original_doc["summary"] = summary_raw
+        original_doc["projectName"] = project_name_raw
+        original_doc["projectAcronym"] = project_acronym_raw
+
+        # Embedding inputs (with lowercasing as needed)
+        cleaned_doc["title_embedding_input"] = maybe_lowercase(cleaned_doc["title"], model_key)
+        cleaned_doc["summary_embedding_input"] = maybe_lowercase(cleaned_doc["summary"], model_key)
+        cleaned_doc["project_embedding_input"] = maybe_lowercase(
+            f"{cleaned_doc['projectName']} {cleaned_doc['projectAcronym']}".strip(), model_key
+        )
 
         # Fields that need moderate cleaning (lists remain as lists)
         for key in ["keywords", "topics", "subtopics", "project_type", "locations", "languages"]:
-            if key in doc:
-                if isinstance(doc[key], list):
-                    # Step 1: Remove empty values and whitespace BEFORE cleaning
-                    pre_cleaned_values = [str(item).strip() for item in doc[key] if
-                                          isinstance(item, str) and item.strip()]
+            value = doc.get(key)
+            if isinstance(value, list):
+                cleaned = [clean_text_moderate(str(v).strip()) for v in value if isinstance(v, str) and v.strip()]
+                if cleaned:
+                    cleaned_doc[key] = cleaned
+                    original_doc[key] = cleaned
+            elif isinstance(value, str) and value.strip():
+                cleaned = clean_text_moderate(value)
+                cleaned_doc[key] = cleaned
+                original_doc[key] = value
 
-                    # Step 2: Apply cleaning to each element
-                    cleaned_values = [clean_text_moderate(item) for item in pre_cleaned_values]
-
-                    # Step 3: Remove empty values AGAIN after cleaning
-                    cleaned_values = [item for item in cleaned_values if item.strip()]
-
-                    if cleaned_values:  # Only store if there's at least one valid value
-                        cleaned_doc[key] = cleaned_values
-                        original_doc[key] = cleaned_values
-                    elif key in cleaned_doc:  # Remove empty lists if they exist
-                        del cleaned_doc[key]
-                else:
-                    value = str(doc[key]).strip()  # Ensure it's a string and remove spaces
-                    if value:  # Only store if not empty
-                        cleaned_doc[key] = clean_text_moderate(value)
-                        original_doc[key] = value
+        # Embedding-friendly inputs from lists
+        if "keywords" in cleaned_doc:
+            joined = " ".join(cleaned_doc["keywords"])
+            cleaned_doc["keywords_embedding_input"] = maybe_lowercase(joined, model_key)
+        if "locations" in cleaned_doc:
+            joined = " ".join(cleaned_doc["locations"])
+            cleaned_doc["locations_embedding_input"] = maybe_lowercase(joined, model_key)
 
         # Extract and clean content_pages from ko_content
         if "ko_content" in doc and isinstance(doc["ko_content"], list):
@@ -178,9 +207,11 @@ def process_json_for_opensearch(input_file):
                 for page in pages:
                     if not isinstance(page, str):
                         continue
-                    cleaned = clean_text_extensive(page)
 
+                    cleaned = clean_text_extensive(page, preserve_numbers=True)
+                    cleaned = maybe_lowercase(cleaned, model_key)
                     chunk_objs = chunk_text_by_tokens(cleaned, tokenizer)
+
                     for chunk in chunk_objs:
                         all_chunks.append(chunk["text"])  # still send only text for embedding
 
@@ -192,28 +223,32 @@ def process_json_for_opensearch(input_file):
             if all_chunks:
                 cleaned_doc["content_pages"] = all_chunks
 
+        # Convert dateCreated to ISO 8601 format
+        original_date = str(doc.get("dateCreated", "")).strip()
+        if original_date:
+            try:
+                if re.fullmatch(r"\d{4}", original_date):
+                    parsed = datetime.strptime(original_date + "-01-01", "%Y-%m-%d")
+                elif "-" in original_date and len(original_date.split("-")[0]) == 4:
+                    parsed = datetime.strptime(original_date, "%Y-%m-%d")
+                else:
+                    parsed = datetime.strptime(original_date, "%d-%m-%Y")
+
+                cleaned_doc["dateCreated"] = parsed.strftime("%Y-%m-%d")  # For OpenSearch
+                original_doc["dateCreated"] = parsed.strftime("%d-%m-%Y")  # For UI
+            except Exception as e:
+                # Skip invalid date
+                original_doc["dateCreated"] = original_date  # still show in UI
+        else:
+            # Don't include empty date in OpenSearch index
+            original_doc.pop("dateCreated", None)
+
         # Store only these fields in the original version (returned in search results)
         search_result_fields = ["title", "creators", "topics", "fileType", "keywords", "dateCreated", "_orig_id", "@id",
                                 "project_id", "project_type", "projectAcronym", "project_id", "projectURL"]
         for key in search_result_fields:
             if key in doc:
                 original_doc[key] = doc[key]
-
-        # Convert dateCreated to ISO 8601 format
-        if "dateCreated" in doc:
-            original_date = str(doc["dateCreated"]).strip()
-            try:
-                if "-" in original_date and len(original_date.split("-")[0]) == 4:
-                    # Already in YYYY-MM-DD format, no need to convert
-                    cleaned_doc["dateCreated"] = original_date
-                else:
-                    # Convert from DD-MM-YYYY to YYYY-MM-DD
-                    parsed_date = datetime.strptime(original_date, "%d-%m-%Y").strftime("%Y-%m-%d")
-                    cleaned_doc["dateCreated"] = parsed_date
-            except ValueError:
-                cleaned_doc["dateCreated"] = original_date  # Use original if parsing fails
-
-            original_doc["dateCreated"] = original_date  # Keep the original format
 
         # Prepare the final document for OpenSearch ingestion
         processed_doc = {
@@ -232,41 +267,11 @@ def generate_bulk_actions(documents):
     Processes data in batches.
     """
     for doc in documents:
-        # Convert `dateCreated` if it exists
-        if "dateCreated" in doc and isinstance(doc["dateCreated"], str):
-            doc["dateCreated"] = fix_date_format(doc["dateCreated"])
-            if doc["dateCreated"] is None:
-                del doc["dateCreated"]  # Remove field if conversion fails
-
         yield {
             "_index": INDEX_NAME,
             "_id": doc["_orig_id"],  # Use _orig_id as document ID
             "_source": doc  # The actual document data
         }
-
-
-# Function to reformat date
-def fix_date_format(date_str):
-    """
-    Converts dates to the format YYYY-MM-DD.
-    - If the input is "DD-MM-YYYY", it converts it to "YYYY-MM-DD".
-    - If the input is only a year (e.g., "2023"), it assumes "01-01-YYYY".
-    - If invalid, returns None.
-    """
-    date_str = date_str.strip()  # Ensure no leading/trailing spaces
-
-    # Check if the date is only a year (e.g., "2023")
-    if re.fullmatch(r"\d{4}", date_str):  # Matches exactly 4 digits
-        return f"{date_str}-01-01"  # Convert "2023" → "2023-01-01"
-
-    # Convert from DD-MM-YYYY to YYYY-MM-DD
-    try:
-        return datetime.strptime(date_str, "%d-%m-%Y").strftime("%Y-%m-%d")
-    except ValueError:
-        print(f"Warning: Invalid date format detected: {date_str}. Skipping conversion.")
-        return None  # Return None for invalid dates
-
-
 
 for MODEL, CONFIG in MODEL_CONFIG.items():
     print(f"\nProcessing model: {MODEL} \n")
@@ -280,7 +285,7 @@ for MODEL, CONFIG in MODEL_CONFIG.items():
         latest_file = get_latest_json_file()
         print(f"Using file: {latest_file}")
 
-        processed_data = process_json_for_opensearch(latest_file)
+        processed_data = process_json_for_opensearch(latest_file, tokenizer, MODEL)
         total_docs = len(processed_data)
 
         reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM)
@@ -288,7 +293,7 @@ for MODEL, CONFIG in MODEL_CONFIG.items():
         print(f"Starting ingestion of {total_docs} documents...")
 
         print(f"Indexing into: {INDEX_NAME}")
-        batch_size = 10
+        batch_size = 20
         for i in range(0, total_docs, batch_size):
             batch = processed_data[i: i + batch_size]
             success_count, errors = helpers.bulk(client, generate_bulk_actions(batch), refresh="wait_for",

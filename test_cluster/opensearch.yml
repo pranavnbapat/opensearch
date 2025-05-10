@@ -1,0 +1,27 @@
+cluster.name: opensearchtest-cluster
+node.name: opensearchtest-node1
+node.roles: [cluster_manager, data, ingest]
+discovery.seed_hosts: [opensearchtest-node1, opensearchtest-node2]
+cluster.initial_cluster_manager_nodes: [opensearchtest-node1, opensearchtest-node2]
+
+network.host: 0.0.0.0
+bootstrap.memory_lock: true
+
+plugins.security.disabled: false
+
+plugins.security.ssl.transport.enabled: true
+plugins.security.ssl.transport.pemcert_filepath: certs/admin.pem
+plugins.security.ssl.transport.pemkey_filepath: certs/admin-key.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: certs/root-ca.pem
+plugins.security.ssl.transport.enforce_hostname_verification: false
+
+plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.pemcert_filepath: certs/admin.pem
+plugins.security.ssl.http.pemkey_filepath: certs/admin-key.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: certs/root-ca.pem
+
+plugins.security.nodes_dn:
+  - "CN=opensearchtest.nexavion.com"
+
+plugins.security.authcz.admin_dn:
+  - "CN=admin"
