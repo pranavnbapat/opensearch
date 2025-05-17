@@ -5,29 +5,25 @@ from datetime import datetime
 from utils import *
 from transformers import AutoTokenizer
 
-# tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/msmarco-distilbert-base-tas-b")
-
-# INDEX_NAME = os.getenv("INDEX_NAME", "neural_search_index")
-
 MODEL_CONFIG = {
-    # "minilml12v2": {
-    #     "tokenizer": "sentence-transformers/all-MiniLM-L12-v2",
-    #     "dimension": 384,
-    #     "pipeline": "neural_search_pipeline_minilml12v2",
-    #     "index": "neural_search_index_minilml12v2"
-    # },
-    # "mpnetv2": {
-    #     "tokenizer": "sentence-transformers/all-mpnet-base-v2",
-    #     "dimension": 768,
-    #     "pipeline": "neural_search_pipeline_mpnetv2",
-    #     "index": "neural_search_index_mpnetv2"
-    # },
-    # "msmarco": {
-    #     "tokenizer": "sentence-transformers/msmarco-distilbert-base-tas-b",
-    #     "dimension": 768,
-    #     "pipeline": "neural_search_pipeline_msmarco_distilbert",
-    #     "index": "neural_search_index_msmarco_distilbert"
-    # },
+    "minilml12v2": {
+        "tokenizer": "sentence-transformers/all-MiniLM-L12-v2",
+        "dimension": 384,
+        "pipeline": "neural_search_pipeline_minilml12v2",
+        "index": "neural_search_index_minilml12v2"
+    },
+    "mpnetv2": {
+        "tokenizer": "sentence-transformers/all-mpnet-base-v2",
+        "dimension": 768,
+        "pipeline": "neural_search_pipeline_mpnetv2",
+        "index": "neural_search_index_mpnetv2"
+    },
+    "msmarco": {
+        "tokenizer": "sentence-transformers/msmarco-distilbert-base-tas-b",
+        "dimension": 768,
+        "pipeline": "neural_search_pipeline_msmarco_distilbert",
+        "index": "neural_search_index_msmarco_distilbert"
+    },
 
     # Not supported by OpenSearch out of the box (pretrained)
     # "e5": {
