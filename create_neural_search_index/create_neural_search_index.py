@@ -1,37 +1,36 @@
-# opensearch_ingestion
+# create_neural_search_index/create_neural_search_index.py
 
 import json
+import os
+import re
+import sys
+
 from datetime import datetime
-from utils import *
 from transformers import AutoTokenizer
 
+# Add the project root to Python's path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from utils import (BASE_MODEL_CONFIG, client, maybe_lowercase, clean_text_light, clean_text_moderate,
+                   clean_text_extensive, remove_extra_quotes, chunk_text_by_tokens, helpers)
+
+dev_mode = True
+
+# Apply `_dev` suffix to index names if dev_mode is True
 MODEL_CONFIG = {
-    "minilml12v2": {
-        "tokenizer": "sentence-transformers/all-MiniLM-L12-v2",
-        "dimension": 384,
-        "pipeline": "neural_search_pipeline_minilml12v2",
-        "index": "neural_search_index_minilml12v2"
-    },
-    "mpnetv2": {
-        "tokenizer": "sentence-transformers/all-mpnet-base-v2",
-        "dimension": 768,
-        "pipeline": "neural_search_pipeline_mpnetv2",
-        "index": "neural_search_index_mpnetv2"
-    },
-    "msmarco": {
-        "tokenizer": "sentence-transformers/msmarco-distilbert-base-tas-b",
-        "dimension": 768,
-        "pipeline": "neural_search_pipeline_msmarco_distilbert",
-        "index": "neural_search_index_msmarco_distilbert"
-    },
+    model: {
+        **cfg,
+        "index": cfg["index"] + ("_dev" if dev_mode else "")
+    }
+    for model, cfg in BASE_MODEL_CONFIG.items()
 }
 
 
-# Function to get the latest file from the 'raw_data' folder
-def get_latest_json_file(folder="raw_data"):
+def get_latest_json_file():
+    folder = "../raw_data_dev" if dev_mode else "../raw_data"
     files = [f for f in os.listdir(folder) if f.endswith(".json")]
     if not files:
-        raise FileNotFoundError("No JSON files found in the raw_data folder!")
+        raise FileNotFoundError(f"No JSON files found in {folder}!")
     latest_file = max(files, key=lambda x: os.path.getctime(os.path.join(folder, x)))
     return os.path.join(folder, latest_file)
 
@@ -112,6 +111,20 @@ def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
 
     except Exception as e:
         print(f"Error resetting index: {e}")
+
+
+def generate_bulk_actions(documents, index_name):
+    """
+    Generator that yields bulk index operations for OpenSearch.
+    Processes data in batches.
+    """
+    for doc in documents:
+        yield {
+            "_index": index_name,
+            "_id": doc["_orig_id"],  # Use _orig_id as document ID
+            "_source": doc  # The actual document data
+        }
+
 
 # Function to process JSON data for OpenSearch
 def process_json_for_opensearch(input_file, tokenizer, model_key):
@@ -201,20 +214,31 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
 
         # Convert dateCreated to ISO 8601 format
         original_date = str(doc.get("dateCreated", "")).strip()
+        # print("original_date: ", original_date)
         if original_date:
             try:
                 if re.fullmatch(r"\d{4}", original_date):
                     parsed = datetime.strptime(original_date + "-01-01", "%Y-%m-%d")
-                elif "-" in original_date and len(original_date.split("-")[0]) == 4:
+                elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", original_date):
                     parsed = datetime.strptime(original_date, "%Y-%m-%d")
-                else:
+                elif re.fullmatch(r"\d{2}-\d{2}-\d{4}", original_date):
                     parsed = datetime.strptime(original_date, "%d-%m-%Y")
+                else:
+                    raise ValueError("Unrecognised date format")
+                    # parsed = datetime.strptime(original_date, "%d-%m-%Y")
 
                 cleaned_doc["dateCreated"] = parsed.strftime("%Y-%m-%d")  # For OpenSearch
                 original_doc["dateCreated"] = parsed.strftime("%d-%m-%Y")  # For UI
+
+                # print("cleaned_doc[\"dateCreated\"]", cleaned_doc["dateCreated"])
+                # print("original_doc[\"dateCreated\"]", original_doc["dateCreated"])
             except Exception as e:
+                # Log and skip problematic date in cleaned_doc
+                print(f"Skipping bad date: {original_date} → {e}")
+
                 # Skip invalid date
                 original_doc["dateCreated"] = original_date  # still show in UI
+                cleaned_doc.pop("dateCreated", None)
         else:
             # Don't include empty date in OpenSearch index
             original_doc.pop("dateCreated", None)
@@ -228,26 +252,13 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
 
         # Prepare the final document for OpenSearch ingestion
         processed_doc = {
-            **cleaned_doc,  # Cleaned data for indexing
-            **original_doc  # Original data for returning in search
+            **original_doc,  # Original data for returning in search
+            **cleaned_doc  # Cleaned data for indexing
         }
         processed_documents.append(processed_doc)
 
     return processed_documents
 
-
-# Function to generate bulk actions
-def generate_bulk_actions(documents):
-    """
-    Generator that yields bulk index operations for OpenSearch.
-    Processes data in batches.
-    """
-    for doc in documents:
-        yield {
-            "_index": INDEX_NAME,
-            "_id": doc["_orig_id"],  # Use _orig_id as document ID
-            "_source": doc  # The actual document data
-        }
 
 for MODEL, CONFIG in MODEL_CONFIG.items():
     print(f"\nProcessing model: {MODEL} \n")
@@ -272,7 +283,7 @@ for MODEL, CONFIG in MODEL_CONFIG.items():
         batch_size = 20
         for i in range(0, total_docs, batch_size):
             batch = processed_data[i: i + batch_size]
-            success_count, errors = helpers.bulk(client, generate_bulk_actions(batch), refresh="wait_for",
+            success_count, errors = helpers.bulk(client, generate_bulk_actions(batch, INDEX_NAME), refresh="wait_for",
                                                  stats_only=False)
             print(f"Batch {i // batch_size + 1}: {success_count} successes.")
             if errors:
@@ -281,3 +292,4 @@ for MODEL, CONFIG in MODEL_CONFIG.items():
         print(f"Finished ingestion for: {MODEL}")
     except Exception as e:
         print(f"Error during {MODEL}: {e}")
+

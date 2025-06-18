@@ -6,26 +6,11 @@ import textwrap
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-# from test_glued_words import find_glued_words
-# from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
-
 from utils import (
     clean_text_light,
     clean_text_moderate,
     clean_text_extensive,
 )
-
-# print("Loading grammar correction model...")
-# grammar_corrector = pipeline(
-#     "text2text-generation",
-#     model="prithivida/grammar_error_correcter_v1",
-#     tokenizer="prithivida/grammar_error_correcter_v1"
-# )
-# print("Model loaded.\n")
-
-# Initialise transformer-based NER pipeline
-# ner_pipe = pipeline("ner", model="dbmdz/bert-large-cased-finetuned-conll03-english",
-#                     aggregation_strategy="simple")
 
 # Function to get the latest file from the 'raw_data' folder
 def get_latest_json_file(folder="../raw_data/"):
@@ -45,16 +30,6 @@ def safe_get_content_pages(obj):
     if not isinstance(content_pages, list):
         return [str(content_pages)]
     return content_pages
-
-# def correct_grammar(text):
-#     """Correct glued words and grammar issues using transformer model."""
-#     prompt = f"gec: {text.strip()}"
-#     try:
-#         result = grammar_corrector(prompt, do_sample=False)
-#         return result[0]["generated_text"] if result else text
-#     except Exception as e:
-#         print(f"Grammar correction failed: {e}")
-#         return text
 
 
 def correct_grammar_in_chunks(text, grammar_pipeline, max_chunk_chars=400):
@@ -83,7 +58,14 @@ with open(json_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
 # Take only the first object
-obj = data[1]
+# Define target file types (case-sensitive as per your list)
+target_filetypes = {"Audio"}
+
+# Find the first record with fileType == "Video" or "Audio"
+obj = next((item for item in data if item.get("fileType") in target_filetypes), None)
+
+if obj is None:
+    raise ValueError("No file found with fileType 'Video' or 'Audio'.")
 
 # Clean fields
 title = clean_text_light(obj.get("title", ""))
@@ -95,12 +77,13 @@ keywords = [clean_text_moderate(k) for k in obj.get("keywords", [])]
 topics = [clean_text_moderate(t) for t in obj.get("topics", [])]
 subtopics = [clean_text_moderate(s) for s in obj.get("subtopics", [])]
 project_type = clean_text_moderate(obj.get("project_type", ""))
+ko_url = obj.get("@id", "")
 locations = [clean_text_moderate(l) for l in obj.get("locations", [])]
 languages = [clean_text_moderate(l) for l in obj.get("languages", [])]
+fileType = [clean_text_moderate(l) for l in obj.get("fileType", [])]
 
 content_pages = safe_get_content_pages(obj)
 cleaned_pages = [clean_text_extensive(p, preserve_numbers=True) for p in content_pages]
-# corrected_pages = [correct_grammar_in_chunks(p, grammar_corrector) for p in cleaned_pages]
 
 # Print results
 print("Title:", title)
@@ -113,7 +96,7 @@ print("Subtopics:", subtopics)
 print("Project Type:", project_type)
 print("Locations:", locations)
 print("Languages:", languages)
-print("\nContent Pages:")
+print("fileType:", obj.get("fileType", "N/A"))
+print("KO ko_url:", ko_url)
+print("\nContent Pages:", cleaned_pages)
 
-for i, page in enumerate(cleaned_pages, 1):
-    print(f"--- Page {i} ---\n{page}\n")

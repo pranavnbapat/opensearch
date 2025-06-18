@@ -10,7 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 # Load environment variables from .env
 load_dotenv()
-api_key = os.getenv("OPENAI_KEY_GRAMMAR_CORRECTION")
+api_key = os.getenv("OPENAI_API_KEY")
 
 client = OpenAI(api_key=api_key)
 
