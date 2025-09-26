@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import (BASE_MODEL_CONFIG, client, maybe_lowercase, clean_text_light, clean_text_moderate,
                    clean_text_extensive, remove_extra_quotes, chunk_text_by_tokens, helpers)
 
-dev_mode = True
+dev_mode = False
 
 # Apply `_dev` suffix to index names if dev_mode is True
 MODEL_CONFIG = {

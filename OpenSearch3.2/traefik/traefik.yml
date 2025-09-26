@@ -1,0 +1,81 @@
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 60s
+        idleTimeout: 90s
+
+log:
+  level: INFO
+
+api:
+  dashboard: true
+  insecure: false
+
+providers:
+  docker:
+    exposedByDefault: false   # Only expose services with labels
+  file:
+    directory: /traefik-dynamic
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: p.bapat@maastrichtuniversity.nl
+      storage: acme.json
+      httpChallenge:
+        entryPoint: web
+
+# Basic Auth Middleware
+#http:
+#  middlewares:
+#    dashboard-auth:
+#      basicAuth:
+#        users:
+#          - "admin:$$2y$$05$$ni1cWGse6HzNYP0MVnqzouiM0KlAH.emgn097cwfgq1uMqCJ554I."
+
+  # Secure Dashboard Router
+#  routers:
+#    dashboard:
+#      rule: "PathPrefix(`/dashboard`)"
+#      service: "api@internal"
+#      entryPoints:
+#        - "traefik"
+#      middlewares:
+#        - "dashboard-auth"
+
+# Enable Access Logs
+#accessLog:
+#  filePath: "/var/log/traefik/access.log"
+#  format: json
+#  bufferingSize: 100
+#  fields:
+#    defaultMode: keep
+#    headers:
+#      defaultMode: drop
+#      names:
+#        Authorization: keep
+#        User-Agent: keep
+
+# Enable Metrics for Prometheus
+#metrics:
+#  prometheus:
+#    entryPoint: traefik
+#    addEntryPointsLabels: true
+#    addServicesLabels: true
+
+#tracing:
+#  jaeger:
+#    samplingServerURL: "http://jaeger:5778/sampling"
+#    localAgentHostPort: "jaeger:6831"
+#    samplingType: "const"
+#    samplingParam: 1.0

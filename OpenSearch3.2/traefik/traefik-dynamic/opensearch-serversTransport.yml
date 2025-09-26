@@ -1,0 +1,5 @@
+http:
+  serversTransports:
+    opensearch-https:
+      serverName: opensearchtest.nexavion.com  # SNI used for TLS verification
+      insecureSkipVerify: false                # verify cert & hostname
