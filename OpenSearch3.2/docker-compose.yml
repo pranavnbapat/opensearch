@@ -1,0 +1,269 @@
+services:
+  ###################################################################
+  # OpenSearch 3 node 1 (cluster_manager + data + ingest)           #
+  ###################################################################
+  opensearchtest-node1:
+    image: opensearchproject/opensearch:3.2.0
+    container_name: opensearchtest-node1
+    environment:
+      # ------------------------ CLUSTER BASICS ------------------------
+      - cluster.name=opensearchtest-cluster
+      - node.name=opensearchtest-node1
+      - node.roles=cluster_manager,data,ingest
+      - discovery.seed_hosts=opensearchtest-node1,opensearchtest-node2,opensearchtest-node3
+      - discovery.seed_resolver.timeout=30s
+      - cluster.initial_cluster_manager_nodes=opensearchtest-node1,opensearchtest-node2
+      - node.attr.zone=zone1
+      - cluster.routing.allocation.awareness.attributes=zone
+      - cluster.routing.allocation.awareness.force.zone.values=zone1,zone2
+
+      # ------------------------ MEMORY / JVM --------------------------
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g
+
+      # ------------------------ SECURITY CORE -------------------------
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+      - OPENSEARCHTEST_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+
+      - plugins.security.disabled=false
+      - plugins.security.nodes_dn=["CN=opensearchtest.nexavion.com","CN=admin"]
+      - plugins.security.authcz.admin_dn=["CN=admin"]
+
+      # ------------------------ TRANSPORT TLS (node↔node) -------------
+      - plugins.security.ssl.transport.enabled=true
+      - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+      - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/http/privkey.pk8
+      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+      - plugins.security.ssl.transport.enforce_hostname_verification=false
+
+      # ------------------------ REST/HTTP TLS (client↔node) ----------
+      - plugins.security.ssl.http.enabled=false
+#      - plugins.security.ssl.http.pemcert_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+#      - plugins.security.ssl.http.pemkey_filepath=/usr/share/opensearch/config/certs/http/privkey.pem
+#      - plugins.security.ssl.http.pemkey_filepath=/usr/share/opensearch/config/certs/http/privkey.pk8
+#      - plugins.security.ssl.http.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+
+      # ------------------------ THREAD POOLS (optional) --------------
+      - thread_pool.write.size=16
+      - thread_pool.search.size=24
+
+      # ------------------------ DEMO CONFIG ---------------------------
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+
+      - network.host=0.0.0.0
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+      - "traefik.http.routers.opensearchtest.rule=Host(`opensearchtest.nexavion.com`)"
+      - "traefik.http.routers.opensearchtest.entrypoints=websecure"
+      - "traefik.http.routers.opensearchtest.tls=true"
+      - "traefik.http.routers.opensearchtest.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.opensearchtest.service=opensearchtest"
+      - "traefik.http.services.opensearchtest.loadbalancer.server.port=9200"
+      - "traefik.http.services.opensearchtest.loadbalancer.server.scheme=http"
+#      - "traefik.http.services.opensearchtest.loadbalancer.serversTransport=opensearch-https"
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    restart: unless-stopped
+
+    command: ["/bin/bash", "-c", "/usr/share/opensearch/entrypoint.sh"]
+
+    volumes:
+      - opensearchtest-data1:/usr/share/opensearch/data
+      - ./certs:/usr/share/opensearch/config/certs:ro
+      - ./securityconfig:/usr/share/opensearch/config/securityconfig:ro
+      - ./entrypoint.sh:/usr/share/opensearch/entrypoint.sh:ro
+      - /root/traefik/le-certs/opensearchtest.nexavion.com:/usr/share/opensearch/config/certs/http:ro
+    networks:
+      - traefik-net
+
+  ###################################################################
+  # OpenSearch node 2 (cluster_manager + data + ingest)             #
+  ###################################################################
+  opensearchtest-node2:
+    image: opensearchproject/opensearch:3.2.0
+    container_name: opensearchtest-node2
+    environment:
+      # ------------------------ CLUSTER BASICS ------------------------
+      - cluster.name=opensearchtest-cluster
+      - node.name=opensearchtest-node2
+      - node.roles=cluster_manager,data,ingest
+      - discovery.seed_hosts=opensearchtest-node1,opensearchtest-node2,opensearchtest-node3
+      - discovery.seed_resolver.timeout=30s
+      - cluster.initial_cluster_manager_nodes=opensearchtest-node1,opensearchtest-node2
+      - node.attr.zone=zone2
+      - cluster.routing.allocation.awareness.attributes=zone
+      - cluster.routing.allocation.awareness.force.zone.values=zone1,zone2
+ #     - gateway.recover_after_data_nodes=2
+ #     - gateway.recover_after_time=2m
+
+      # ------------------------ MEMORY / JVM --------------------------
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g
+
+      # ------------------------ SECURITY CORE -------------------------
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+      - OPENSEARCHTEST_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+
+      - plugins.security.disabled=false
+      - plugins.security.nodes_dn=["CN=opensearchtest.nexavion.com","CN=admin"]
+      - plugins.security.authcz.admin_dn=["CN=admin"]
+
+      # ------------------------ TRANSPORT TLS (node↔node) -------------
+      - plugins.security.ssl.transport.enabled=true
+      - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+      - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/http/privkey.pk8
+      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+#      - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/transport/admin.pem
+#      - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/transport/admin-key.pem
+#      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/root-ca.pem
+      - plugins.security.ssl.transport.enforce_hostname_verification=false
+
+      # ------------------------ REST/HTTP TLS (client↔node) ----------
+      - plugins.security.ssl.http.enabled=false
+#      - plugins.security.ssl.http.pemcert_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+#      - plugins.security.ssl.http.pemkey_filepath=/usr/share/opensearch/config/certs/http/privkey.pk8
+#      - plugins.security.ssl.http.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+
+      # ------------------------ THREAD POOLS (optional) --------------
+      - thread_pool.write.size=16
+      - thread_pool.search.size=24
+
+      # ------------------------ DEMO CONFIG ---------------------------
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+
+      - network.host=0.0.0.0
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    restart: unless-stopped
+
+    volumes:
+      - opensearchtest-data2:/usr/share/opensearch/data
+      - ./certs:/usr/share/opensearch/config/certs:ro
+      - ./securityconfig:/usr/share/opensearch/config/securityconfig:ro
+      - ./entrypoint.sh:/usr/share/opensearch/entrypoint.sh:ro
+      - /root/traefik/le-certs/opensearchtest.nexavion.com:/usr/share/opensearch/config/certs/http:ro
+
+    networks:
+      - traefik-net
+
+
+
+  ###################################################################
+  # OpenSearch 3 node 3 (cluster_manager only)                      #
+  ###################################################################
+  opensearchtest-node3:
+    image: opensearchproject/opensearch:3.2.0
+    container_name: opensearchtest-node3
+    environment:
+      # ------------------------ CLUSTER BASICS ------------------------
+      - cluster.name=opensearchtest-cluster
+      - node.name=opensearchtest-node3
+      - node.roles=cluster_manager            # manager-only voter
+      - discovery.seed_hosts=opensearchtest-node1,opensearchtest-node2,opensearchtest-node3
+      # IMPORTANT: Do NOT set cluster.initial_cluster_manager_nodes when adding to an existing cluster
+      - node.attr.zone=zone1
+      - cluster.routing.allocation.awareness.attributes=zone
+      - cluster.routing.allocation.awareness.force.zone.values=zone1,zone2
+
+      # ------------------------ MEMORY / JVM --------------------------
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g     # small voter
+
+      # ------------------------ SECURITY CORE -------------------------
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+      - OPENSEARCHTEST_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+      - plugins.security.disabled=false
+      - plugins.security.nodes_dn=["CN=opensearchtest.nexavion.com","CN=admin"]
+      - plugins.security.authcz.admin_dn=["CN=admin"]
+
+      # ------------------------ TRANSPORT TLS (node↔node) -------------
+      - plugins.security.ssl.transport.enabled=true
+      - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+      - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/http/privkey.pk8
+      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/http/fullchain.pem
+      - plugins.security.ssl.transport.enforce_hostname_verification=false
+
+      # ------------------------ REST/HTTP TLS (client↔node) ----------
+      - plugins.security.ssl.http.enabled=false
+
+      # ------------------------ DEMO CONFIG ---------------------------
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+
+      - network.host=0.0.0.0
+
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    restart: unless-stopped
+
+    volumes:
+      - opensearchtest-data3:/usr/share/opensearch/data
+      - ./certs:/usr/share/opensearch/config/certs:ro
+      - ./securityconfig:/usr/share/opensearch/config/securityconfig:ro
+      - ./entrypoint.sh:/usr/share/opensearch/entrypoint.sh:ro
+      - /root/traefik/le-certs/opensearchtest.nexavion.com:/usr/share/opensearch/config/certs/http:ro
+
+    networks:
+      - traefik-net
+
+
+
+  opensearchtest-dashboards:
+    image: opensearchproject/opensearch-dashboards:3.2.0
+    container_name: opensearchtest-dashboards
+    environment:
+      - OPENSEARCH_HOSTS=["https://${DOMAIN}"]
+#      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+      - OPENSEARCH_USERNAME=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboardstest.rule=Host(`dashboard.${DOMAIN}`)"
+      - "traefik.http.routers.dashboardstest.entrypoints=websecure"
+      - "traefik.http.routers.dashboardstest.tls=true"
+      - "traefik.http.routers.dashboardstest.tls.certresolver=letsencrypt"
+      - "traefik.http.services.dashboardstest.loadbalancer.server.port=5601"
+#    healthcheck:
+#      test: ["CMD", "curl", "-f", "http://localhost:5601"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 5
+    depends_on:
+      - opensearchtest-node1
+    networks:
+      - traefik-net
+    restart: unless-stopped
+
+volumes:
+  opensearchtest-data1:
+    driver: local
+  opensearchtest-data2:
+    driver: local
+  opensearchtest-data3:
+    driver: local
+
+
+networks:
+  traefik-net:
+    external: true
