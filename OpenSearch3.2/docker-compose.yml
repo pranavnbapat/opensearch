@@ -39,7 +39,9 @@ services:
       - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/transport/node1.pem
       - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/transport/node1-key.pem
       - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/root-ca.pem
-      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3"]
+      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/trusted-cas.pem
+#      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3"]
+      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3","CN=opensearchtest-ml1","CN=opensearchtest-ml2"]
       - plugins.security.authcz.admin_dn=["CN=admin"]
 
       # ------------------------ REST/HTTP TLS (client↔node) ----------
@@ -74,6 +76,13 @@ services:
         soft: 65536
         hard: 65536
 
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "curl -sS http://localhost:9200 >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
     restart: unless-stopped
 
     command: ["/bin/bash", "-c", "/usr/share/opensearch/entrypoint.sh"]
@@ -84,6 +93,7 @@ services:
       - ./securityconfig:/usr/share/opensearch/config/securityconfig:ro
       - ./entrypoint.sh:/usr/share/opensearch/entrypoint.sh:ro
       - ./pa-config:/usr/share/opensearch/config/opensearch-performance-analyzer:rw
+
     networks:
       - traefik-net
 
@@ -128,7 +138,9 @@ services:
       - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/transport/node2.pem
       - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/transport/node2-key.pem
       - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/root-ca.pem
-      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3"]
+      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/trusted-cas.pem
+#      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3"]
+      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3","CN=opensearchtest-ml1","CN=opensearchtest-ml2"]
       - plugins.security.authcz.admin_dn=["CN=admin"]
 
       # ------------------------ REST/HTTP TLS (client↔node) ----------
@@ -143,6 +155,12 @@ services:
       - DISABLE_INSTALL_DEMO_CONFIG=true
 
     shm_size: 1gb
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+      - "traefik.http.services.opensearchtest.loadbalancer.server.port=9200"
+      - "traefik.http.services.opensearchtest.loadbalancer.server.scheme=http"
 
     ulimits:
       memlock:
@@ -170,9 +188,9 @@ services:
       timeout: 3s
       retries: 30
       start_period: 30s
-    depends_on:
-      opensearchtest-node1:
-        condition: service_healthy
+#    depends_on:
+#      opensearchtest-node1:
+#        condition: service_healthy
 
 
   ###################################################################
@@ -195,11 +213,6 @@ services:
       - cluster.routing.allocation.awareness.attributes=zone
       - cluster.routing.allocation.awareness.force.zone.values=zone1,zone2
 
-      - network.host=0.0.0.0
-
-      - network.publish_host=opensearchtest-node3
-      - transport.publish_host=opensearchtest-node3
-
       # ------------------------ MEMORY / JVM --------------------------
       - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g     # small voter
@@ -214,7 +227,9 @@ services:
       - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/transport/node3.pem
       - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/transport/node3-key.pem
       - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/root-ca.pem
-      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3"]
+      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/trusted-cas.pem
+#      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3"]
+      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3","CN=opensearchtest-ml1","CN=opensearchtest-ml2"]
       - plugins.security.authcz.admin_dn=["CN=admin"]
 
       # ------------------------ REST/HTTP TLS (client↔node) ----------
@@ -222,6 +237,11 @@ services:
 
       # ------------------------ DEMO CONFIG ---------------------------
       - DISABLE_INSTALL_DEMO_CONFIG=true
+
+      - network.host=0.0.0.0
+
+      - network.publish_host=opensearchtest-node3
+      - transport.publish_host=opensearchtest-node3
 
     shm_size: 1gb
 
@@ -251,9 +271,169 @@ services:
       timeout: 3s
       retries: 30
       start_period: 30s
-    depends_on:
-      opensearchtest-node1:
-        condition: service_healthy
+#    depends_on:
+#      opensearchtest-node1:
+#        condition: service_healthy
+
+  ###################################################################
+  # OpenSearch ML node 1 (ml only)                                  #
+  ###################################################################
+  opensearchtest-ml1:
+    user: "1000:1000"
+    image: opensearchproject/opensearch:3.2.0
+    container_name: opensearchtest-ml1
+    environment:
+      # ------------------------ CLUSTER BASICS ------------------------
+      - cluster.name=opensearchtest-cluster
+      - node.name=opensearchtest-ml1
+      - node.roles=ml                      # ML-only
+      - discovery.seed_hosts=opensearchtest-node1,opensearchtest-node2,opensearchtest-node3
+      - discovery.seed_resolver.timeout=120s
+      - transport.connect_timeout=60s
+      - node.attr.zone=zone1               # spread ML nodes across zones
+      - cluster.routing.allocation.awareness.attributes=zone
+      - cluster.routing.allocation.awareness.force.zone.values=zone1,zone2
+
+      # ------------------------ MEMORY / JVM --------------------------
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms8g -Xmx8g   # adjust to your box
+
+      # ------------------------ SECURITY CORE -------------------------
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+      - plugins.security.disabled=false
+
+      # ------------------------ TRANSPORT TLS (node↔node) -------------
+      - plugins.security.ssl.transport.enabled=true
+      - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/transport/ml1.pem
+      - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/transport/ml1-key.pem
+      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/trusted-cas.pem
+      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3","CN=opensearchtest-ml1","CN=opensearchtest-ml2"]
+      - plugins.security.authcz.admin_dn=["CN=admin"]
+
+      # ------------------------ REST/HTTP TLS (client↔node) ----------
+      - plugins.security.ssl.http.enabled=false  # no public exposure; keep behind cluster
+
+      # ------------------------ ML COMMONS ----------------------------
+      - plugins.ml_commons.only_run_on_ml_node=true
+      - plugins.ml_commons.task_dispatch_policy=least_load
+      - plugins.ml_commons.max_ml_task_per_node=30
+      - plugins.ml_commons.max_model_on_node=30
+      - plugins.ml_commons.allow_registering_model_via_url=true
+      - plugins.ml_commons.allow_registering_model_via_local_file=true
+      # optional but useful:
+      # - plugins.ml_commons.native_memory_threshold=95
+
+      # ------------------------ DEMO CONFIG ---------------------------
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+
+      # Bind REST internally (no Traefik labels for ML nodes)
+      - network.host=0.0.0.0
+      - network.publish_host=opensearchtest-ml1
+      - transport.publish_host=opensearchtest-ml1
+
+    shm_size: 1gb
+
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile:  { soft: 65536, hard: 65536 }
+
+    restart: unless-stopped
+
+    volumes:
+      - opensearchtest-ml1:/usr/share/opensearch/data
+      - ./certs/transport:/usr/share/opensearch/config/certs/transport:ro
+      - ./securityconfig:/usr/share/opensearch/config/securityconfig:ro
+      - ./pa-config:/usr/share/opensearch/config/opensearch-performance-analyzer:rw
+
+    networks:
+      - traefik-net
+
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "curl -sS http://localhost:9200 >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  ###################################################################
+  # OpenSearch ML node 2 (ml only)                                  #
+  ###################################################################
+  opensearchtest-ml2:
+    user: "1000:1000"
+    image: opensearchproject/opensearch:3.2.0
+    container_name: opensearchtest-ml2
+    environment:
+      # ------------------------ CLUSTER BASICS ------------------------
+      - cluster.name=opensearchtest-cluster
+      - node.name=opensearchtest-ml2
+      - node.roles=ml
+      - discovery.seed_hosts=opensearchtest-node1,opensearchtest-node2,opensearchtest-node3
+      - discovery.seed_resolver.timeout=120s
+      - transport.connect_timeout=60s
+      - node.attr.zone=zone2
+      - cluster.routing.allocation.awareness.attributes=zone
+      - cluster.routing.allocation.awareness.force.zone.values=zone1,zone2
+
+      # ------------------------ MEMORY / JVM --------------------------
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms8g -Xmx8g
+
+      # ------------------------ SECURITY CORE -------------------------
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
+      - plugins.security.disabled=false
+
+      # ------------------------ TRANSPORT TLS (node↔node) -------------
+      - plugins.security.ssl.transport.enabled=true
+      - plugins.security.ssl.transport.pemcert_filepath=/usr/share/opensearch/config/certs/transport/ml2.pem
+      - plugins.security.ssl.transport.pemkey_filepath=/usr/share/opensearch/config/certs/transport/ml2-key.pem
+      - plugins.security.ssl.transport.pemtrustedcas_filepath=/usr/share/opensearch/config/certs/transport/trusted-cas.pem
+      - plugins.security.nodes_dn=["CN=opensearchtest-node1","CN=opensearchtest-node2","CN=opensearchtest-node3","CN=opensearchtest-ml1","CN=opensearchtest-ml2"]
+      - plugins.security.authcz.admin_dn=["CN=admin"]
+
+      # ------------------------ REST/HTTP TLS (client↔node) ----------
+      - plugins.security.ssl.http.enabled=false
+
+      # ------------------------ ML COMMONS ----------------------------
+      - plugins.ml_commons.only_run_on_ml_node=true
+      - plugins.ml_commons.task_dispatch_policy=least_load
+      - plugins.ml_commons.max_ml_task_per_node=30
+      - plugins.ml_commons.max_model_on_node=30
+      - plugins.ml_commons.allow_registering_model_via_url=true
+      - plugins.ml_commons.allow_registering_model_via_local_file=true
+      # - plugins.ml_commons.native_memory_threshold=95
+
+      # ------------------------ DEMO CONFIG ---------------------------
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+
+      - network.host=0.0.0.0
+      - network.publish_host=opensearchtest-ml2
+      - transport.publish_host=opensearchtest-ml2
+
+    shm_size: 1gb
+
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile:  { soft: 65536, hard: 65536 }
+
+    restart: unless-stopped
+
+    volumes:
+      - opensearchtest-ml2:/usr/share/opensearch/data
+      - ./certs/transport:/usr/share/opensearch/config/certs/transport:ro
+      - ./securityconfig:/usr/share/opensearch/config/securityconfig:ro
+      - ./pa-config:/usr/share/opensearch/config/opensearch-performance-analyzer:rw
+
+    networks:
+      - traefik-net
+
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "curl -sS http://localhost:9200 >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+
 
   opensearchtest-dashboards:
     image: opensearchproject/opensearch-dashboards:3.2.0
@@ -276,12 +456,11 @@ services:
     restart: unless-stopped
 
 volumes:
-  opensearchtest-data1:
-    driver: local
-  opensearchtest-data2:
-    driver: local
-  opensearchtest-data3:
-    driver: local
+  opensearchtest-data1: { driver: local }
+  opensearchtest-data2: { driver: local }
+  opensearchtest-data3: { driver: local }
+  opensearchtest-ml1:   { driver: local }
+  opensearchtest-ml2:   { driver: local }
 
 
 networks:

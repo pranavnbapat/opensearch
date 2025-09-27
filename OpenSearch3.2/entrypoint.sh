@@ -66,24 +66,37 @@ if ! _get "/_cat/indices/.opendistro_security?h=index" | grep -q ".opendistro_se
     echo "Cluster health is RED during bootstrap; passing ${EXTRA_FLAG}"
   fi
 
-  # 5) Run securityadmin with/without TLS client materials depending on REST scheme.
-  if [ "$SCHEME" = "https" ]; then
-    /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh \
-      -cd /usr/share/opensearch/config/securityconfig/ \
-      -h localhost -p 9200 \
-      -cacert /usr/share/opensearch/config/certs/transport/root-ca.pem \
-      -cert   /usr/share/opensearch/config/certs/transport/admin.pem \
-      -key    /usr/share/opensearch/config/certs/transport/admin-key.pem \
-      -icl -nhnv ${EXTRA_FLAG}
-  else
-    /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh \
-      -cd /usr/share/opensearch/config/securityconfig/ \
-      -h localhost -p 9200 \
-      -icl -nhnv ${EXTRA_FLAG}
+  # --- retry wrapper starts here ---
+  set +e
+  for i in {1..5}; do
+    if [ "$SCHEME" = "https" ]; then
+      /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh \
+        -cd /usr/share/opensearch/config/securityconfig/ \
+        -h localhost -p 9200 \
+        -cacert /usr/share/opensearch/config/certs/transport/root-ca.pem \
+        -cert   /usr/share/opensearch/config/certs/transport/admin.pem \
+        -key    /usr/share/opensearch/config/certs/transport/admin-key.pem \
+        -icl -nhnv ${EXTRA_FLAG} && break
+    else
+      /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh \
+        -cd /usr/share/opensearch/config/securityconfig/ \
+        -h localhost -p 9200 \
+        -icl -nhnv ${EXTRA_FLAG} && break
+    fi
+    echo "securityadmin failed (attempt $i/5). Retrying in 5s..."
+    sleep 5
+  done
+  rc=$?
+  set -e
+  if [ $rc -ne 0 ]; then
+    echo "securityadmin failed after retries; continuing (the node will still run)."
   fi
+  # --- retry wrapper ends here ---
+
 else
   echo "Security index already present; skipping securityadmin"
 fi
+
 
 # 6) Keep the container in the foreground by waiting for the OpenSearch PID.
 echo "OpenSearch REST is ${SCHEME}; waiting on PID ${OS_PID}..."
