@@ -8,6 +8,11 @@
 
 set -euo pipefail
 
+# Harden image defaults (not bind-mounted)
+chmod 700 /usr/share/opensearch/config || true
+chmod 700 /usr/share/opensearch/config/opensearch-performance-analyzer || true
+chmod 700 /usr/share/opensearch/config/certs || true
+
 # Hard-fail early if the admin password is not provided (avoids silent auth failures).
 : "${OPENSEARCH_INITIAL_ADMIN_PASSWORD:?OPENSEARCH_INITIAL_ADMIN_PASSWORD is required}"
 
@@ -83,49 +88,3 @@ fi
 # 6) Keep the container in the foreground by waiting for the OpenSearch PID.
 echo "OpenSearch REST is ${SCHEME}; waiting on PID ${OS_PID}..."
 wait "${OS_PID}"
-
-#until curl -sS -k -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" \
-#     "${SCHEME}://localhost:9200" >/dev/null; do
-#  sleep 5
-#done
-##until curl -sk -u "admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}" https://localhost:9200 >/dev/null; do
-##  sleep 5
-##done#
-
-# Helper: GET a URL with or without -k depending on scheme, no auth
-#_curl_get() {
-#  if [ "$SCHEME" = "https" ]; then
-#    curl -sS -k    "https://localhost:9200$1"
-#  else
-#    curl -sS       "http://localhost:9200$1"
-#  fi
-#}
-
-# --- Run securityadmin ONLY if security index is missing/uninitialised ---
-#if ! _curl_get "/_cat/indices/.opendistro_security?h=index" | grep -q ".opendistro_security"; then
-#  echo "Initialising OpenSearch Security from /usr/share/opensearch/config/securityconfig"
-
-  # Decide whether to allow RED cluster during very first bootstrap
-#  HEALTH_JSON=$(_curl_get "/_cluster/health" || echo '{}')
-  # Pull .status or default to "red" if missing
-#  HEALTH=$(echo "$HEALTH_JSON" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
-#  EXTRA_FLAG=""
-#  if [ "${HEALTH:-red}" = "red" ]; then
-#    EXTRA_FLAG="--accept-red-cluster"
-#    echo "Cluster health is RED during bootstrap; passing ${EXTRA_FLAG}"
-#  fi
-
-  # securityadmin: pass host/port explicitly; HTTPS toggled by -cacert/-cert/-key
-#  /usr/share/opensearch/plugins/opensearch-security/tools/securityadmin.sh \
-#    -cd /usr/share/opensearch/config/securityconfig/ \
-#    -h localhost \
-#    -p 9200 \
-#    -cacert /usr/share/opensearch/config/certs/transport/root-ca.pem \
-#    -cert   /usr/share/opensearch/config/certs/transport/admin.pem \
-#    -key    /usr/share/opensearch/config/certs/transport/admin-key.pem \
-#    -icl -nhnv ${EXTRA_FLAG}
-#else
-#  echo "Security index already present; skipping securityadmin"
-#fi
-
-#wait

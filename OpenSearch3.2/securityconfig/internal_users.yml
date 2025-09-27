@@ -1,0 +1,10 @@
+_meta:
+  type: "internalusers"
+  config_version: 2
+
+admin:
+  hash: "$2y$12$qGZTWtYfEpjF7rM3SdoQUeNMReDiwEENrUVVu3uGryUKeYA0DPZsu"
+  reserved: true
+  backend_roles:
+    - "admin"
+  description: "Administrator user"

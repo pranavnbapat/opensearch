@@ -1,0 +1,8 @@
+_meta:
+  type: "nodesdn"
+  config_version: 2
+
+nodes_dn:
+  - "CN=opensearchtest-node1"
+  - "CN=opensearchtest-node2"
+  - "CN=opensearchtest-node3"

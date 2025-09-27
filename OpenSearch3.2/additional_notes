@@ -1,0 +1,20 @@
+# Make sure OpenSearch (uid 1000) owns the mounted content
+sudo chown -R 1000:1000 ./certs ./securityconfig ./pa-config
+
+# Directories must be 0700; files must be 0600
+find ./certs          -type d -exec chmod 700 {} +
+find ./certs          -type f -exec chmod 600 {} +
+find ./securityconfig -type d -exec chmod 700 {} +
+find ./securityconfig -type f -exec chmod 600 {} +
+
+# Performance Analyzer properties file
+chmod 700 ./pa-config
+chmod 600 ./pa-config/performance-analyzer.properties
+
+# If you have an HTTP TLS subdir (the warning mentions it), lock it down too
+# (it’s inside ./certs in your compose)
+[ -d ./certs/http ] && chmod 700 ./certs/http
+
+sudo chown -R 1000:1000 pa-config
+sudo chmod 700 pa-config
+sudo chmod 600 pa-config/performance-analyzer.properties

@@ -1,0 +1,17 @@
+_meta:
+  type: "roles"
+  config_version: 2
+
+all_access:
+  cluster_permissions:
+    - "cluster_all"
+  index_permissions:
+    - index_patterns:
+        - "*"
+      allowed_actions:
+        - "indices_all"
+  tenant_permissions:
+    - tenant_patterns:
+        - "global_tenant"
+      allowed_actions:
+        - "kibana_all_read"
