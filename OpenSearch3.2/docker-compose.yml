@@ -296,7 +296,7 @@ services:
 
       # ------------------------ MEMORY / JVM --------------------------
       - bootstrap.memory_lock=true
-      - OPENSEARCH_JAVA_OPTS=-Xms8g -Xmx8g   # adjust to your box
+      - OPENSEARCH_JAVA_OPTS=-Xms8g -Xmx8g
 
       # ------------------------ SECURITY CORE -------------------------
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCHTEST_ADMIN_PASSWORD}
