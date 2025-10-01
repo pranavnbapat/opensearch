@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils import (BASE_MODEL_CONFIG, client, maybe_lowercase, clean_text_light, clean_text_moderate,
                    clean_text_extensive, remove_extra_quotes, chunk_text_by_tokens, helpers)
 
-dev_mode = False
+dev_mode = True
 
 # Apply `_dev` suffix to index names if dev_mode is True
 MODEL_CONFIG = {
@@ -36,6 +36,30 @@ def get_latest_json_file():
 
 
 def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
+    """
+    HNSW (k-NN) quick reference for the vector fields below:
+
+    • dimension (int):
+        Must equal your model's embedding size (e.g. 768). If it doesn't match, indexing fails.
+
+    • method.parameters.m (int):
+        Max neighbours per node (graph degree). Typical = 16 (8–32 common).
+        Higher m ⇒ larger index + slower build, slightly better recall.
+
+    • method.parameters.ef_construction (int):
+        Candidate list size during graph build. Typical = 128–512.
+        Higher ef_construction ⇒ more RAM + slower build, better recall.
+
+    • index.knn.algo_param.ef_search (int)  [set via indices.put_settings below]:
+        Candidate list size at query time. Typical = 64–200; we use 100 here.
+        Higher ef_search ⇒ slower queries, better recall.
+
+    Notes:
+      - These are HNSW graph params (not token lengths, not model dims—except 'dimension').
+      - Tuning order: try raising ef_search first (cheap). Changing m/ef_construction requires reindex.
+      - Distance: 'space_type' may be 'l2' or 'cosinesimil'. If you switch to cosine, ensure vectors are normalised.
+    """
+
     try:
         client.indices.delete(index=INDEX_NAME, ignore=[400, 404])  # Delete index if it exists
         print(f"Deleted index: {INDEX_NAME}")
@@ -44,15 +68,13 @@ def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
         client.indices.create(
             index=INDEX_NAME,
             body={
-                "settings": {"index.knn": True, "default_pipeline": PIPELINE_NAME},
+                "settings": {
+                    "index.knn": True,
+                    "index.default_pipeline": PIPELINE_NAME
+                },
                 "mappings": {
                     "properties": {
                         "title_embedding": {
-                            "type": "knn_vector", "dimension": VECTOR_DIM,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
-                                       "parameters": {"ef_construction": 512, "m": 16}}
-                        },
-                        "subtitle_embedding": {
                             "type": "knn_vector", "dimension": VECTOR_DIM,
                             "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
                                        "parameters": {"ef_construction": 512, "m": 16}}
@@ -68,11 +90,6 @@ def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
                                        "parameters": {"ef_construction": 512, "m": 16}}
                         },
                         "keywords_embedding": {
-                            "type": "knn_vector", "dimension": VECTOR_DIM,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
-                                       "parameters": {"ef_construction": 512, "m": 16}}
-                        },
-                        "locations_embedding": {
                             "type": "knn_vector", "dimension": VECTOR_DIM,
                             "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
                                        "parameters": {"ef_construction": 512, "m": 16}}
@@ -95,22 +112,36 @@ def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
                         "themes": {"type": "keyword"},
                         "locations": {"type": "keyword"},
                         "category": {"type": "keyword"},
-                        # "subcategory": {"type": "keyword"},
                         "subcategories": {"type": "keyword"},
                         "languages": {"type": "keyword"},
                         "intended_purposes": {"type": "keyword"},
+
+                        # "dateCreated": {"type": "date"},
                         "date_of_completion": {"type": "date"},
+
                         "creators": {"type": "text"},
 
-                        "projectName": {"type": "text"},
-                        "projectAcronym": {"type": "keyword"},
+                        "project_name": {"type": "text"},
+                        # "projectName": {"type": "text"},
+
+                        "project_acronym": {"type": "keyword"},
+                        # "projectAcronym": {"type": "keyword"},
+
                         "project_id": {"type": "keyword"},
                         "project_type": {"type": "keyword"},
-                        "projectURL": {"type": "keyword"},
+                        "project_display_name": {"type": "keyword"},
+
+                        "project_url": {"type": "keyword"},
+                        # "projectURL": {"type": "keyword"},
 
                         "parent_id": {"type": "keyword"},
                         "chunk_index": {"type": "integer"},
                         "content_chunk": {"type": "text"},
+                        "page_index": {"type": "integer"},  # which page in ko_content_flat
+                        "within_page_chunk_index": {"type": "integer"},  # order of this chunk within that page
+                        "chunk_token_count": {"type": "integer"},  # token count reported by your chunker
+                        "content_char_len": {"type": "integer"},  # len(content_chunk) after cleaning
+                        "ko_id": {"type": "keyword"},  # stable KO id to group chunks
                     }
                 }
             }
@@ -145,7 +176,12 @@ def _make_meta_doc(doc, cleaned_doc):
     return {
         "_orig_id": f"{doc.get('_orig_id')}::meta",
         "parent_id": doc.get("_orig_id"),
+        "ko_id": doc.get("_orig_id"),
         "chunk_index": -1,
+        "page_index": -1,
+        "within_page_chunk_index": -1,
+        "chunk_token_count": 0,
+        "content_char_len": 0,
         "content_chunk": "",
 
         "@id": doc.get("@id"),
@@ -158,16 +194,32 @@ def _make_meta_doc(doc, cleaned_doc):
         "locations": cleaned_doc.get("locations"),
         "languages": cleaned_doc.get("languages"),
         "category": doc.get("category"),
-        # "subcategory": doc.get("subcategory"),
         "subcategories": doc.get("subcategories") or doc.get("subcategory"),
+
+        # "dateCreated": cleaned_doc.get("dateCreated"),
         "date_of_completion": cleaned_doc.get("date_of_completion"),
+
         "creators": doc.get("creators"),
         "intended_purposes": doc.get("intended_purposes"),
-        "projectName": doc.get("projectName"),
-        "projectAcronym": doc.get("projectAcronym"),
+
+        # "projectName": doc.get("project_name"),
+        "project_name": doc.get("project_name"),
+
+        # "projectAcronym": doc.get("project_acronym"),
+        "project_acronym": doc.get("project_acronym"),
+
         "project_id": doc.get("project_id"),
         "project_type": doc.get("project_type"),
-        "projectURL": doc.get("projectURL"),
+        "project_display_name": doc.get("project_display_name"),
+
+        # "projectURL": doc.get("project_url"),
+        "project_url": doc.get("project_url"),
+
+        "title_embedding_input": cleaned_doc.get("title_embedding_input"),
+        "subtitle_embedding_input": cleaned_doc.get("subtitle_embedding_input"),
+        "description_embedding_input": cleaned_doc.get("description_embedding_input"),
+        "project_embedding_input": cleaned_doc.get("project_embedding_input"),
+        "keywords_embedding_input": cleaned_doc.get("keywords_embedding_input"),
     }
 
 
@@ -196,16 +248,16 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
         title_raw = str(doc.get("title", "")).strip()
         subtitle_raw = str(doc.get("subtitle", "")).strip()
         description_raw = str(doc.get("description", "")).strip()
-        project_name_raw = str(doc.get("projectName", "")).strip()
-        project_acronym_raw = str(doc.get("projectAcronym", "")).strip()
+        project_name_raw = str(doc.get("project_name", "")).strip()
+        project_acronym_raw = str(doc.get("project_acronym", "")).strip()
 
+        # If one of (name/acronym) is missing, mirror the other. If both empty, skip the KO.
         if not project_name_raw and project_acronym_raw:
             project_name_raw = project_acronym_raw
         elif not project_acronym_raw and project_name_raw:
             project_acronym_raw = project_name_raw
         elif not project_name_raw and not project_acronym_raw:
-            # Skip this document completely
-            continue
+            continue  # no project identity at all → skip
 
         cleaned_doc["title"] = clean_text_light(remove_extra_quotes(title_raw))
         cleaned_doc["subtitle"] = clean_text_light(remove_extra_quotes(subtitle_raw))
@@ -214,8 +266,14 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
         original_doc["title"] = title_raw
         original_doc["description"] = description_raw
 
-        original_doc["projectName"] = project_name_raw
-        original_doc["projectAcronym"] = project_acronym_raw
+        original_doc["project_name"] = project_name_raw
+        original_doc["project_acronym"] = project_acronym_raw
+
+        # Ensure display name is available if present in JSON
+        original_doc["project_display_name"] = str(doc.get("project_display_name", "")).strip()
+
+        # proj_url_val = doc.get("project_url") or doc.get("projectURL")
+        proj_url_val = doc.get("project_url")
 
         # Embedding inputs (with lowercasing as needed)
         cleaned_doc["title_embedding_input"] = maybe_lowercase(cleaned_doc["title"], model_key)
@@ -271,6 +329,7 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
             cleaned_doc["keywords_embedding_input"] = maybe_lowercase(joined, model_key)
 
         doc_dcomp_raw = str(doc.get("date_of_completion", "")).strip()
+        cleaned_doc["dateCreated"] = None
         cleaned_doc["date_of_completion"] = None
         if doc_dcomp_raw:
             try:
@@ -284,6 +343,7 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
                 else:
                     raise ValueError("Unrecognised date_of_completion format")
 
+                cleaned_doc["dateCreated"] = dt.strftime("%Y-%m-%d")
                 cleaned_doc["date_of_completion"] = dt.strftime("%Y-%m-%d")
             except Exception as e:
                 print(f"[WARN] Bad date_of_completion '{doc_dcomp_raw}' for _orig_id={doc.get('_orig_id')} → {e}")
@@ -318,29 +378,53 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
 
         # Non-empty list ⇒ process pages → chunks
         all_chunks = []
-        for page in flat_pages:
+        for page_idx, page in enumerate(flat_pages):
             if not isinstance(page, str):
                 continue
             cleaned = clean_text_extensive(page, preserve_numbers=True)
             cleaned = maybe_lowercase(cleaned, model_key)
 
-            # Token-aware chunking; each item: {"text": ..., "token_count": ...}
-            for ch in chunk_text_by_tokens(cleaned, tokenizer):
-                # Belt-and-braces: never let a chunk exceed 512 tokens
-                if ch["token_count"] > 512:
+            within_idx = 0
+            chunks = chunk_text_by_tokens(cleaned, tokenizer)
+            for ch in chunks:
+                txt = ch.get("text", "")
+                tok = int(ch.get("token_count", 0))
+
+                if not txt.strip():
+                    continue
+                if tok > 512:
                     print(
-                        f"[WARN] Overlong chunk (>512) for _orig_id={doc.get('_orig_id')}; truncation recommended in chunker")
-                all_chunks.append(ch["text"])
+                        f"[WARN] Overlong chunk (>512) for _orig_id={doc.get('_orig_id')} page={page_idx} idx={within_idx}")
+
+                all_chunks.append({
+                    "text": txt,
+                    "token_count": tok,
+                    "page_index": page_idx,
+                    "within_page_chunk_index": within_idx,
+                    "char_len": len(txt),
+                })
+                within_idx += 1
 
         if all_chunks:
-            for i, ch_text in enumerate(all_chunks):
-                processed_documents.append({
-                    "_orig_id": f"{doc.get('_orig_id')}::c{i}",
-                    "parent_id": doc.get("_orig_id"),
-                    "chunk_index": i,
+            ko_id_val = doc.get("_orig_id")
+            for i, ch in enumerate(all_chunks):
+                token_count = int(ch.get("token_count", 0))
+                page_idx = ch.get("page_index", 0)
+                within_idx = ch.get("within_page_chunk_index", i)
 
-                    "content_chunk": ch_text,
-                    "content_embedding_input": ch_text,
+                processed_documents.append({
+                    "_orig_id": f"{ko_id_val}::c{i}",
+                    "parent_id": ko_id_val,
+                    "ko_id": ko_id_val,
+
+                    "chunk_index": i,
+                    "page_index": page_idx,
+                    "within_page_chunk_index": within_idx,
+                    "chunk_token_count": token_count,
+                    "content_char_len": int(ch.get("char_len", 0)),
+
+                    "content_chunk": ch["text"],
+                    "content_embedding_input": ch["text"],
 
                     "@id": doc.get("@id"),
                     "title": cleaned_doc.get("title"),
@@ -354,20 +438,26 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
                     "category": doc.get("category"),
                     # "subcategory": doc.get("subcategory"),
                     "subcategories": doc.get("subcategories") or doc.get("subcategory"),
+
+                    # "dateCreated": cleaned_doc.get("dateCreated"),
                     "date_of_completion": cleaned_doc.get("date_of_completion"),
+
                     "creators": doc.get("creators"),
                     "intended_purposes": doc.get("intended_purposes"),
-                    "projectName": original_doc.get("projectName"),
-                    "projectAcronym": original_doc.get("projectAcronym"),
+
+                    # "projectName": original_doc.get("project_name"),
+                    "project_name": original_doc.get("project_name"),
+
+                    "project_display_name": original_doc.get("project_display_name"),
+
+                    # "projectAcronym": original_doc.get("project_acronym"),
+                    "project_acronym": original_doc.get("project_acronym"),
+
                     "project_id": doc.get("project_id"),
                     "project_type": doc.get("project_type"),
-                    "projectURL": doc.get("projectURL"),
 
-                    "title_embedding_input": cleaned_doc.get("title_embedding_input"),
-                    "subtitle_embedding_input": cleaned_doc.get("subtitle_embedding_input"),
-                    "description_embedding_input": cleaned_doc.get("description_embedding_input"),
-                    "keywords_embedding_input": cleaned_doc.get("keywords_embedding_input"),
-                    "project_embedding_input": cleaned_doc.get("project_embedding_input"),
+                    "project_url": proj_url_val,
+                    # "projectURL": proj_url_val,
                 })
             # Done with this KO
             continue
