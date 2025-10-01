@@ -31,7 +31,7 @@ def get_latest_json_file():
     files = [f for f in os.listdir(folder) if f.endswith(".json")]
     if not files:
         raise FileNotFoundError(f"No JSON files found in {folder}!")
-    latest_file = max(files, key=lambda x: os.path.getctime(os.path.join(folder, x)))
+    latest_file = max(files, key=lambda x: os.path.getmtime(os.path.join(folder, x)))
     return os.path.join(folder, latest_file)
 
 
@@ -116,23 +116,19 @@ def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
                         "languages": {"type": "keyword"},
                         "intended_purposes": {"type": "keyword"},
 
-                        # "dateCreated": {"type": "date"},
                         "date_of_completion": {"type": "date"},
 
                         "creators": {"type": "text"},
 
                         "project_name": {"type": "text"},
-                        # "projectName": {"type": "text"},
 
                         "project_acronym": {"type": "keyword"},
-                        # "projectAcronym": {"type": "keyword"},
 
                         "project_id": {"type": "keyword"},
                         "project_type": {"type": "keyword"},
                         "project_display_name": {"type": "keyword"},
 
                         "project_url": {"type": "keyword"},
-                        # "projectURL": {"type": "keyword"},
 
                         "parent_id": {"type": "keyword"},
                         "chunk_index": {"type": "integer"},
@@ -196,30 +192,20 @@ def _make_meta_doc(doc, cleaned_doc):
         "category": doc.get("category"),
         "subcategories": doc.get("subcategories") or doc.get("subcategory"),
 
-        # "dateCreated": cleaned_doc.get("dateCreated"),
         "date_of_completion": cleaned_doc.get("date_of_completion"),
 
         "creators": doc.get("creators"),
         "intended_purposes": doc.get("intended_purposes"),
 
-        # "projectName": doc.get("project_name"),
         "project_name": doc.get("project_name"),
 
-        # "projectAcronym": doc.get("project_acronym"),
         "project_acronym": doc.get("project_acronym"),
 
         "project_id": doc.get("project_id"),
         "project_type": doc.get("project_type"),
         "project_display_name": doc.get("project_display_name"),
 
-        # "projectURL": doc.get("project_url"),
-        "project_url": doc.get("project_url"),
-
-        "title_embedding_input": cleaned_doc.get("title_embedding_input"),
-        "subtitle_embedding_input": cleaned_doc.get("subtitle_embedding_input"),
-        "description_embedding_input": cleaned_doc.get("description_embedding_input"),
-        "project_embedding_input": cleaned_doc.get("project_embedding_input"),
-        "keywords_embedding_input": cleaned_doc.get("keywords_embedding_input"),
+        "project_url": doc.get("project_url")
     }
 
 
@@ -436,21 +422,17 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
                     "locations": cleaned_doc.get("locations"),
                     "languages": cleaned_doc.get("languages"),
                     "category": doc.get("category"),
-                    # "subcategory": doc.get("subcategory"),
                     "subcategories": doc.get("subcategories") or doc.get("subcategory"),
 
-                    # "dateCreated": cleaned_doc.get("dateCreated"),
                     "date_of_completion": cleaned_doc.get("date_of_completion"),
 
                     "creators": doc.get("creators"),
                     "intended_purposes": doc.get("intended_purposes"),
 
-                    # "projectName": original_doc.get("project_name"),
                     "project_name": original_doc.get("project_name"),
 
                     "project_display_name": original_doc.get("project_display_name"),
 
-                    # "projectAcronym": original_doc.get("project_acronym"),
                     "project_acronym": original_doc.get("project_acronym"),
 
                     "project_id": doc.get("project_id"),

@@ -69,7 +69,7 @@ BASE_MODEL_CONFIG = {
     "msmarco": {
         "tokenizer": "sentence-transformers/msmarco-distilbert-base-tas-b",
         "dimension": 768,
-        "pipeline": "neural_search_pipeline_msmarco_distilbert",
+        "pipeline": "neural_search_pipeline_msmarco_distilbert_v2",
         "index": "neural_search_index_msmarco_distilbert"
     }
 }
