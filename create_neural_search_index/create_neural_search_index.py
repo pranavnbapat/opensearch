@@ -138,6 +138,11 @@ def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
                         "chunk_token_count": {"type": "integer"},  # token count reported by your chunker
                         "content_char_len": {"type": "integer"},  # len(content_chunk) after cleaning
                         "ko_id": {"type": "keyword"},  # stable KO id to group chunks
+
+                        "ko_created_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                        "ko_updated_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                        "proj_created_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                        "proj_updated_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                     }
                 }
             }
@@ -205,7 +210,12 @@ def _make_meta_doc(doc, cleaned_doc):
         "project_type": doc.get("project_type"),
         "project_display_name": doc.get("project_display_name"),
 
-        "project_url": doc.get("project_url")
+        "project_url": doc.get("project_url"),
+
+        "ko_created_at": doc.get("ko_created_at"),
+        "ko_updated_at": doc.get("ko_updated_at"),
+        "proj_created_at": doc.get("proj_created_at"),
+        "proj_updated_at": doc.get("proj_updated_at"),
     }
 
 
@@ -258,7 +268,6 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
         # Ensure display name is available if present in JSON
         original_doc["project_display_name"] = str(doc.get("project_display_name", "")).strip()
 
-        # proj_url_val = doc.get("project_url") or doc.get("projectURL")
         proj_url_val = doc.get("project_url")
 
         # Embedding inputs (with lowercasing as needed)
@@ -439,7 +448,11 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
                     "project_type": doc.get("project_type"),
 
                     "project_url": proj_url_val,
-                    # "projectURL": proj_url_val,
+
+                    "ko_created_at": doc.get("ko_created_at"),
+                    "ko_updated_at": doc.get("ko_updated_at"),
+                    "proj_created_at": doc.get("proj_created_at"),
+                    "proj_updated_at": doc.get("proj_updated_at"),
                 })
             # Done with this KO
             continue
