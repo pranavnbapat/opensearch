@@ -1,18 +1,34 @@
 # create_neural_search_index/create_neural_search_index.py
 
-import json
-import os
-import re
-import sys
+"""
+create_neural_search_index.py — incremental OpenSearch ingestion for neural search.
 
-from datetime import datetime
+What it does
+- Finds the most recently modified JSON in ../raw_data_dev (or ../raw_data when dev_mode=False).
+- Cleans fields and chunks `ko_content_flat` using the model’s tokenizer; prepares *embedding inputs* (actual vectors are created by the ingest pipeline).
+- Ensures the target index exists with k-NN (HNSW) mappings and sets `index.default_pipeline` to the model’s pipeline.
+- Emits **one meta document per KO** (`chunk_index == -1`) and zero or more **chunk documents** (`chunk_index >= 0`).
+
+Incremental behaviour
+- Loads existing meta docs (`term` query on `chunk_index: -1`).
+- A KO is considered **changed** if **any** of these differ vs. what’s indexed: `ko_updated_at`, `proj_updated_at`, or `source_hash` (hash of title/subtitle/description/keywords/topics/themes and the ordered `ko_content_flat`).
+- **Changed KOs**: delete old docs by `ko_id` (scoped `_delete_by_query`), then bulk upsert new meta + chunks.
+- **New KOs**: bulk upsert only (no delete). **Unchanged KOs** are skipped.
+
+IDs & grouping
+- Meta ID: `"{_orig_id}::meta"`, Chunk IDs: `"{_orig_id}::c{n}"`.
+- All docs for a KO carry `ko_id == _orig_id` for grouping and targeted deletes.
+- Meta stores `source_hash` and `ingested_at` (UTC) for change detection and audit.
+"""
+
+import json
+
+from collections import defaultdict
+from datetime import datetime, UTC
+
 from transformers import AutoTokenizer
 
-# Add the project root to Python's path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from utils import (BASE_MODEL_CONFIG, client, maybe_lowercase, clean_text_light, clean_text_moderate,
-                   clean_text_extensive, remove_extra_quotes, chunk_text_by_tokens, helpers)
+from utils import *
 
 dev_mode = True
 
@@ -35,142 +51,111 @@ def get_latest_json_file():
     return os.path.join(folder, latest_file)
 
 
-def reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM):
-    """
-    HNSW (k-NN) quick reference for the vector fields below:
+def ensure_index_exists(INDEX_NAME: str, PIPELINE_NAME: str, VECTOR_DIM: int):
+    if client.indices.exists(index=INDEX_NAME):
+        return
 
-    • dimension (int):
-        Must equal your model's embedding size (e.g. 768). If it doesn't match, indexing fails.
+    # Recreate the index with required settings and mappings
+    client.indices.create(
+        index=INDEX_NAME,
+        body={
+            "settings": {
+                "index.knn": True,
+                "index.default_pipeline": PIPELINE_NAME
+            },
+            "mappings": {
+                "properties": {
+                    "title_embedding": {
+                        "type": "knn_vector", "dimension": VECTOR_DIM,
+                        "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                   "parameters": {"ef_construction": 512, "m": 16}}
+                    },
+                    "description_embedding": {
+                        "type": "knn_vector", "dimension": VECTOR_DIM,
+                        "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                   "parameters": {"ef_construction": 512, "m": 16}}
+                    },
+                    "content_embedding": {
+                        "type": "knn_vector", "dimension": VECTOR_DIM,
+                        "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                   "parameters": {"ef_construction": 512, "m": 16}}
+                    },
+                    "keywords_embedding": {
+                        "type": "knn_vector", "dimension": VECTOR_DIM,
+                        "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                   "parameters": {"ef_construction": 512, "m": 16}}
+                    },
+                    "project_embedding": {
+                        "type": "knn_vector", "dimension": VECTOR_DIM,
+                        "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
+                                   "parameters": {"ef_construction": 512, "m": 16}}
+                    },
 
-    • method.parameters.m (int):
-        Max neighbours per node (graph degree). Typical = 16 (8–32 common).
-        Higher m ⇒ larger index + slower build, slightly better recall.
+                    "_orig_id": {"type": "keyword"},
+                    "@id": {"type": "keyword", "index": False},
 
-    • method.parameters.ef_construction (int):
-        Candidate list size during graph build. Typical = 128–512.
-        Higher ef_construction ⇒ more RAM + slower build, better recall.
+                    "title": {"type": "text"},
+                    "subtitle": {"type": "text"},
+                    "description": {"type": "text"},
 
-    • index.knn.algo_param.ef_search (int)  [set via indices.put_settings below]:
-        Candidate list size at query time. Typical = 64–200; we use 100 here.
-        Higher ef_search ⇒ slower queries, better recall.
+                    "keywords": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
+                    "topics": {"type": "keyword"},
+                    "themes": {"type": "keyword"},
+                    "locations": {"type": "keyword"},
+                    "category": {"type": "keyword"},
+                    "subcategories": {"type": "keyword"},
+                    "languages": {"type": "keyword"},
+                    "intended_purposes": {"type": "keyword"},
 
-    Notes:
-      - These are HNSW graph params (not token lengths, not model dims—except 'dimension').
-      - Tuning order: try raising ef_search first (cheap). Changing m/ef_construction requires reindex.
-      - Distance: 'space_type' may be 'l2' or 'cosinesimil'. If you switch to cosine, ensure vectors are normalised.
-    """
+                    "date_of_completion": {"type": "date"},
 
-    try:
-        client.indices.delete(index=INDEX_NAME, ignore=[400, 404])  # Delete index if it exists
-        print(f"Deleted index: {INDEX_NAME}")
+                    "creators": {"type": "text"},
 
-        # Recreate the index with required settings and mappings
-        client.indices.create(
-            index=INDEX_NAME,
-            body={
-                "settings": {
-                    "index.knn": True,
-                    "index.default_pipeline": PIPELINE_NAME
-                },
-                "mappings": {
-                    "properties": {
-                        "title_embedding": {
-                            "type": "knn_vector", "dimension": VECTOR_DIM,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
-                                       "parameters": {"ef_construction": 512, "m": 16}}
-                        },
-                        "description_embedding": {
-                            "type": "knn_vector", "dimension": VECTOR_DIM,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
-                                       "parameters": {"ef_construction": 512, "m": 16}}
-                        },
-                        "content_embedding": {
-                            "type": "knn_vector", "dimension": VECTOR_DIM,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
-                                       "parameters": {"ef_construction": 512, "m": 16}}
-                        },
-                        "keywords_embedding": {
-                            "type": "knn_vector", "dimension": VECTOR_DIM,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
-                                       "parameters": {"ef_construction": 512, "m": 16}}
-                        },
-                        "project_embedding": {
-                            "type": "knn_vector", "dimension": VECTOR_DIM,
-                            "method": {"engine": "lucene", "space_type": "l2", "name": "hnsw",
-                                       "parameters": {"ef_construction": 512, "m": 16}}
-                        },
+                    "project_name": {"type": "text"},
 
-                        "_orig_id": {"type": "keyword"},
-                        "@id": {"type": "keyword", "index": False},
+                    "project_acronym": {"type": "keyword"},
 
-                        "title": {"type": "text"},
-                        "subtitle": {"type": "text"},
-                        "description": {"type": "text"},
+                    "project_id": {"type": "keyword"},
+                    "project_type": {"type": "keyword"},
+                    "project_display_name": {"type": "keyword"},
 
-                        "keywords": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
-                        "topics": {"type": "keyword"},
-                        "themes": {"type": "keyword"},
-                        "locations": {"type": "keyword"},
-                        "category": {"type": "keyword"},
-                        "subcategories": {"type": "keyword"},
-                        "languages": {"type": "keyword"},
-                        "intended_purposes": {"type": "keyword"},
+                    "project_url": {"type": "keyword"},
 
-                        "date_of_completion": {"type": "date"},
+                    "parent_id": {"type": "keyword"},
+                    "chunk_index": {"type": "integer"},
+                    "content_chunk": {"type": "text"},
+                    "page_index": {"type": "integer"},  # which page in ko_content_flat
+                    "within_page_chunk_index": {"type": "integer"},  # order of this chunk within that page
+                    "chunk_token_count": {"type": "integer"},
+                    "content_char_len": {"type": "integer"},  # len(content_chunk) after cleaning
+                    "ko_id": {"type": "keyword"},  # stable KO id to group chunks
 
-                        "creators": {"type": "text"},
-
-                        "project_name": {"type": "text"},
-
-                        "project_acronym": {"type": "keyword"},
-
-                        "project_id": {"type": "keyword"},
-                        "project_type": {"type": "keyword"},
-                        "project_display_name": {"type": "keyword"},
-
-                        "project_url": {"type": "keyword"},
-
-                        "parent_id": {"type": "keyword"},
-                        "chunk_index": {"type": "integer"},
-                        "content_chunk": {"type": "text"},
-                        "page_index": {"type": "integer"},  # which page in ko_content_flat
-                        "within_page_chunk_index": {"type": "integer"},  # order of this chunk within that page
-                        "chunk_token_count": {"type": "integer"},  # token count reported by your chunker
-                        "content_char_len": {"type": "integer"},  # len(content_chunk) after cleaning
-                        "ko_id": {"type": "keyword"},  # stable KO id to group chunks
-
-                        "ko_created_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
-                        "ko_updated_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
-                        "proj_created_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
-                        "proj_updated_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
-                    }
+                    "ko_created_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                    "ko_updated_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                    "proj_created_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
+                    "proj_updated_at": {"type": "date", "format": "strict_date_optional_time||epoch_millis"},
                 }
             }
-        )
-        print(f"Recreated index: {INDEX_NAME}")
-
-        # Apply ef_search setting after recreating the index
-        client.indices.put_settings(
-            index=INDEX_NAME,
-            body={"index": {"knn.algo_param.ef_search": 100}}
-        )
-        print(f"Applied ef_search setting (100) to {INDEX_NAME}")
-
-    except Exception as e:
-        print(f"Error resetting index: {e}")
-
-
-def generate_bulk_actions(documents, index_name):
-    """
-    Generator that yields bulk index operations for OpenSearch.
-    Processes data in batches.
-    """
-    for doc in documents:
-        yield {
-            "_index": index_name,
-            "_id": doc["_orig_id"],  # Use _orig_id as document ID
-            "_source": doc  # The actual document data
         }
+    )
+    print(f"Created index: {INDEX_NAME}")
+
+    # Apply ef_search setting after recreating the index
+    client.indices.put_settings(
+        index=INDEX_NAME,
+        body={"index": {"knn.algo_param.ef_search": 100}}
+    )
+    print(f"Applied ef_search setting (100) to {INDEX_NAME}")
+
+
+    # try:
+    #     client.indices.delete(index=INDEX_NAME, ignore=[400, 404])  # Delete index if it exists
+    #     print(f"Deleted index: {INDEX_NAME}")
+    #
+    #
+    #
+    # except Exception as e:
+    #     print(f"Error resetting index: {e}")
 
 
 def _make_meta_doc(doc, cleaned_doc):
@@ -216,8 +201,40 @@ def _make_meta_doc(doc, cleaned_doc):
         "ko_updated_at": doc.get("ko_updated_at"),
         "proj_created_at": doc.get("proj_created_at"),
         "proj_updated_at": doc.get("proj_updated_at"),
+
+        "source_hash": compute_source_hash(doc),
+        "ingested_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
+def load_existing_meta(index_name: str) -> dict:
+    """
+    Return dict: ko_id -> {"ko_updated_at":..., "proj_updated_at":..., "source_hash":...}
+    Reads only meta docs (_orig_id endswith '::meta').
+    """
+    out = {}
+    try:
+        resp = client.search(
+            index=index_name,
+            body={
+                "_source": ["ko_id", "ko_updated_at", "proj_updated_at", "source_hash"],
+                "size": 10000,
+                "query": {
+                    "term": {"chunk_index": -1}  # meta docs only
+                }
+            }
+        )
+        for hit in resp.get("hits", {}).get("hits", []):
+            src = hit.get("_source", {})
+            ko_id = src.get("ko_id")
+            if ko_id:
+                out[ko_id] = {
+                    "ko_updated_at": src.get("ko_updated_at"),
+                    "proj_updated_at": src.get("proj_updated_at"),
+                    "source_hash": src.get("source_hash"),
+                }
+    except Exception as e:
+        print(f"[WARN] Could not load existing meta from {index_name}: {e}")
+    return out
 
 # Function to process JSON data for OpenSearch
 def process_json_for_opensearch(input_file, tokenizer, model_key):
@@ -270,7 +287,7 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
 
         proj_url_val = doc.get("project_url")
 
-        # Embedding inputs (with lowercasing as needed)
+        # Embedding inputs (with lowercasing)
         cleaned_doc["title_embedding_input"] = maybe_lowercase(cleaned_doc["title"], model_key)
         cleaned_doc["subtitle_embedding_input"] = maybe_lowercase(cleaned_doc["subtitle"], model_key)
         cleaned_doc["description_embedding_input"] = maybe_lowercase(cleaned_doc["description"], model_key)
@@ -454,6 +471,9 @@ def process_json_for_opensearch(input_file, tokenizer, model_key):
                     "proj_created_at": doc.get("proj_created_at"),
                     "proj_updated_at": doc.get("proj_updated_at"),
                 })
+
+            processed_documents.append(_make_meta_doc(doc, cleaned_doc))
+
             # Done with this KO
             continue
         else:
@@ -469,6 +489,7 @@ for MODEL, CONFIG in MODEL_CONFIG.items():
     print(f"\nProcessing model: {MODEL} \n")
 
     tokenizer = AutoTokenizer.from_pretrained(CONFIG["tokenizer"])
+    tokenizer.model_max_length = 10 ** 9
     INDEX_NAME = CONFIG["index"]
     PIPELINE_NAME = CONFIG["pipeline"]
     VECTOR_DIM = CONFIG["dimension"]
@@ -478,18 +499,103 @@ for MODEL, CONFIG in MODEL_CONFIG.items():
         print(f"Using file: {latest_file}")
 
         processed_data = process_json_for_opensearch(latest_file, tokenizer, MODEL)
-        total_docs = len(processed_data)
+        ensure_index_exists(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM)
+        existing_meta = load_existing_meta(INDEX_NAME)
 
-        reset_index(INDEX_NAME, PIPELINE_NAME, VECTOR_DIM)
+        by_ko = defaultdict(list)
+        meta_docs = {}
+
+        for d in processed_data:
+            ko = d.get("ko_id") or d.get("_orig_id")
+            # meta docs end with ::meta
+            if d.get("_orig_id", "").endswith("::meta"):
+                meta_docs[ko] = d
+            else:
+                by_ko[ko].append(d)
+
+        # Ensure KOs with only meta doc are considered
+        for ko in set(meta_docs.keys()) - set(by_ko.keys()):
+            by_ko[ko] = []  # no chunks, but we still want to decide/ingest the meta
+
+        new_ko_ids = []
+        changed_ko_ids = []
+        unchanged_ko_ids = []
+        to_write_docs = []
+
+        for ko_id, chunks in by_ko.items():
+            meta = meta_docs.get(ko_id)
+            if not meta:
+                # Defensive: synthesise meta if missing
+                meta = _make_meta_doc({"_orig_id": ko_id}, {
+                    "title": "", "subtitle": "", "description": "",
+                    "keywords": [], "topics": [], "themes": [], "languages": [], "locations": []
+                })
+
+            prev = existing_meta.get(ko_id)
+
+            if prev is None:
+                # NEW KO: don't add to delete list; just write it
+                new_ko_ids.append(ko_id)
+                to_write_docs.append(meta)
+                to_write_docs.extend(chunks)
+                continue
+
+            # else:
+            #     if (meta.get("ko_updated_at") and meta["ko_updated_at"] != prev.get("ko_updated_at")) \
+            #             or (meta.get("proj_updated_at") and meta["proj_updated_at"] != prev.get("proj_updated_at")) \
+            #             or (meta.get("source_hash") and meta["source_hash"] != prev.get("source_hash")):
+            #         changed = True
+
+            # CHANGED?
+            changed = (
+                    (meta.get("ko_updated_at") and meta["ko_updated_at"] != prev.get("ko_updated_at")) or
+                    (meta.get("proj_updated_at") and meta["proj_updated_at"] != prev.get("proj_updated_at")) or
+                    (meta.get("source_hash") and meta["source_hash"] != prev.get("source_hash"))
+            )
+
+            if changed:
+                changed_ko_ids.append(ko_id)
+                to_write_docs.append(meta)
+                to_write_docs.extend(chunks)
+            else:
+                unchanged_ko_ids.append(ko_id)
+
+        total_docs = len(to_write_docs)
+
+        to_delete_ko_ids = changed_ko_ids
+
+        print(f"Plan → new={len(new_ko_ids)}, changed={len(changed_ko_ids)}, unchanged={len(unchanged_ko_ids)}")
+
+        if to_delete_ko_ids:
+            q = {"terms": {"ko_id": to_delete_ko_ids}}
+            try:
+                resp = client.delete_by_query(
+                    index=INDEX_NAME,
+                    body={"query": q},
+                    refresh=True,
+                    conflicts="proceed",
+                    slices="auto"
+                )
+                print(f"Deleted old docs for {len(to_delete_ko_ids)} KO(s): deleted={resp.get('deleted')}")
+            except Exception as e:
+                print(f"[WARN] delete_by_query failed: {e}")
+
+        if not to_write_docs:
+            print("Nothing changed — skipping ingestion.")
+            continue
 
         print(f"Starting ingestion of {total_docs} documents...")
-
         print(f"Indexing into: {INDEX_NAME}")
+
         batch_size = 20
         for i in range(0, total_docs, batch_size):
-            batch = processed_data[i: i + batch_size]
-            success_count, errors = helpers.bulk(client, generate_bulk_actions(batch, INDEX_NAME), refresh="wait_for",
-                                                 stats_only=False)
+            batch = to_write_docs[i: i + batch_size]
+            success_count, errors = helpers.bulk(
+                client,
+                generate_bulk_actions_upsert(batch, INDEX_NAME, PIPELINE_NAME),
+                refresh="wait_for",
+                stats_only=False
+            )
             print(f"Batch {i // batch_size + 1}: {success_count} successes.")
             if errors:
                 print(f"Batch {i // batch_size + 1}: {len(errors)} errors occurred.")
