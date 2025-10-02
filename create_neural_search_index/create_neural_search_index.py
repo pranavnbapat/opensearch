@@ -148,16 +148,6 @@ def ensure_index_exists(INDEX_NAME: str, PIPELINE_NAME: str, VECTOR_DIM: int):
     print(f"Applied ef_search setting (100) to {INDEX_NAME}")
 
 
-    # try:
-    #     client.indices.delete(index=INDEX_NAME, ignore=[400, 404])  # Delete index if it exists
-    #     print(f"Deleted index: {INDEX_NAME}")
-    #
-    #
-    #
-    # except Exception as e:
-    #     print(f"Error resetting index: {e}")
-
-
 def _make_meta_doc(doc, cleaned_doc):
     return {
         "_orig_id": f"{doc.get('_orig_id')}::meta",
