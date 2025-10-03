@@ -26,6 +26,7 @@ import json
 from collections import defaultdict
 from datetime import datetime, UTC
 
+from opensearchpy.helpers import scan
 from transformers import AutoTokenizer
 
 from utils import *
@@ -203,17 +204,15 @@ def load_existing_meta(index_name: str) -> dict:
     """
     out = {}
     try:
-        resp = client.search(
-            index=index_name,
-            body={
-                "_source": ["ko_id", "ko_updated_at", "proj_updated_at", "source_hash"],
-                "size": 10000,
-                "query": {
-                    "term": {"chunk_index": -1}  # meta docs only
-                }
-            }
-        )
-        for hit in resp.get("hits", {}).get("hits", []):
+        for hit in scan(
+            client,
+                index=index_name,
+                query={"query": {"term": {"chunk_index": -1}}},
+                _source=["ko_id", "ko_updated_at", "proj_updated_at", "source_hash"],
+                size=2000,
+                preserve_order=False,
+                clear_scroll=True
+        ):
             src = hit.get("_source", {})
             ko_id = src.get("ko_id")
             if ko_id:
@@ -511,6 +510,7 @@ for MODEL, CONFIG in MODEL_CONFIG.items():
         changed_ko_ids = []
         unchanged_ko_ids = []
         to_write_docs = []
+        removed_ko_ids = []
 
         for ko_id, chunks in by_ko.items():
             meta = meta_docs.get(ko_id)
@@ -550,11 +550,32 @@ for MODEL, CONFIG in MODEL_CONFIG.items():
             else:
                 unchanged_ko_ids.append(ko_id)
 
+        # ---- PRUNE: delete KOs that no longer exist in the current JSON ----
+        PRUNE_REMOVED_KOS = True  # set False if you ever ingest delta files (not full snapshots)
+
+        if PRUNE_REMOVED_KOS:
+            existing_ko_ids = set(existing_meta.keys())
+            current_ko_ids = set(meta_docs.keys())  # meta_docs has one entry per KO you plan to keep
+            removed_ko_ids = sorted(existing_ko_ids - current_ko_ids)
+
+            if removed_ko_ids:
+                print(f"[PRUNE] Will remove {len(removed_ko_ids)} KO(s) missing from current snapshot.")
+                try:
+                    # Delete all docs belonging to each removed KO
+                    delete_kos_by_id(INDEX_NAME, removed_ko_ids, reason="missing from new JSON")
+                except Exception as e:
+                    print(f"[WARN] prune (removed KOs) failed: {e}")
+            else:
+                print("[PRUNE] No removed KOs detected.")
+
         total_docs = len(to_write_docs)
 
         to_delete_ko_ids = changed_ko_ids
 
-        print(f"Plan → new={len(new_ko_ids)}, changed={len(changed_ko_ids)}, unchanged={len(unchanged_ko_ids)}")
+        print(
+            f"Plan → new={len(new_ko_ids)}, changed={len(changed_ko_ids)}, "
+            f"unchanged={len(unchanged_ko_ids)}, removed={len(removed_ko_ids)}"
+        )
 
         if to_delete_ko_ids:
             q = {"terms": {"ko_id": to_delete_ko_ids}}

@@ -255,3 +255,30 @@ def generate_bulk_actions_upsert(docs, index_name, pipeline_name):
             "pipeline": pipeline_name,
         }
 
+def _chunk_list(items, size=5000):
+    """Yield lists of up to `size` items (keeps payloads and terms limits sane)."""
+    it = list(items)
+    for i in range(0, len(it), size):
+        yield it[i:i + size]
+
+
+def delete_kos_by_id(index_name: str, ko_ids, reason: str = "prune removed"):
+    """
+    Delete all docs for each KO in `ko_ids` using Delete-By-Query on ko_id.
+    - Chunks requests so we don't hit HTTP size or terms-count limits.
+    - Uses slices='auto' for parallelism and conflicts='proceed' to avoid 409s if docs change.
+    """
+    total_deleted = 0
+    for batch in _chunk_list(list(ko_ids), size=5000):
+        q = {"terms": {"ko_id": batch}}
+        resp = client.delete_by_query(
+            index=index_name,
+            body={"query": q},
+            refresh=True,          # make results visible to the next reads
+            conflicts="proceed",   # don't abort on version conflicts
+            slices="auto"          # parallelise server-side
+        )
+        deleted = resp.get("deleted", 0)
+        total_deleted += deleted
+        print(f"[PRUNE] {reason}: batch={len(batch)} → deleted={deleted}")
+    print(f"[PRUNE] Total deleted for {reason}: {total_deleted}")
