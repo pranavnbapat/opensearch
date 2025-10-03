@@ -17,6 +17,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Load environment variables from .env
 load_dotenv()
 
+PRUNE_TERMS_BATCH_SIZE = int(os.getenv("PRUNE_TERMS_BATCH_SIZE", "5000"))
+
 BASE_MODEL_CONFIG = {
     # "minilml12v2": {
     #     "tokenizer": "sentence-transformers/all-MiniLM-L12-v2",
@@ -255,7 +257,7 @@ def generate_bulk_actions_upsert(docs, index_name, pipeline_name):
             "pipeline": pipeline_name,
         }
 
-def _chunk_list(items, size=5000):
+def _chunk_list(items, size=PRUNE_TERMS_BATCH_SIZE):
     """Yield lists of up to `size` items (keeps payloads and terms limits sane)."""
     it = list(items)
     for i in range(0, len(it), size):
